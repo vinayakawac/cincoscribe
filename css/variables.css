@@ -167,7 +167,7 @@
   --rail-expanded-w:     220px;  /* hover-expand width */
   --sidebar-w:           var(--rail-w);
   --topbar-h:            52px;
-  --content-max-w:       680px;  /* Claude.ai-style content width */
+  --content-max-w:       100%;  /* Full layout width usage */
   --mobile-tabbar-h:     60px;
 
   /* Motion */
