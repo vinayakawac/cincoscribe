@@ -26,7 +26,8 @@ const store = new Store({
   schema: {
     openAiKey:  { type: 'string' },
     language:   { type: 'string' },
-    whisperMode:{ type: 'string' }
+    whisperMode:{ type: 'string' },
+    modelsDir:  { type: 'string' }
   }
 });
 
@@ -147,12 +148,48 @@ app.whenReady().then(() => {
       });
   });
 
+  // Set default modelsDir in store if not present
+  if (!store.get('modelsDir')) {
+    const defaultModelsDir = app.isPackaged
+      ? path.join(path.dirname(process.execPath), 'models')
+      : path.join(__dirname, 'backend', 'models');
+    store.set('modelsDir', defaultModelsDir);
+  }
+
   // Spawn the FastAPI sidecar before opening the window
   spawnSidecar();
+  syncModelsDirectory();
 
   // Open main window unconditionally — no license gate
   mainWindow = createMainWindow();
 });
+
+async function syncModelsDirectory() {
+  const currentDir = store.get('modelsDir');
+  log.info(`[main] Syncing models directory with sidecar: ${currentDir}`);
+  for (let i = 0; i < 10; i++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${SIDECAR_PORT}/health`);
+      if (res.ok) {
+        log.info('[main] Sidecar is healthy. Sending settings sync...');
+        const syncRes = await fetch(`http://127.0.0.1:${SIDECAR_PORT}/settings/models-dir`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ models_dir: currentDir })
+        });
+        if (syncRes.ok) {
+          log.info('[main] Models directory synced successfully.');
+        } else {
+          log.warn('[main] Models directory sync failed:', await syncRes.text());
+        }
+        break;
+      }
+    } catch (e) {
+      log.info(`[main] Waiting for sidecar health... (${i + 1}/10)`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+}
 
 app.on('window-all-closed', () => {
   killSidecar();
@@ -169,13 +206,36 @@ ipcMain.handle('get-settings', () => ({
   openAiKey:   store.get('openAiKey', ''),
   language:    store.get('language', 'auto'),
   whisperMode: store.get('whisperMode', 'fast'),
+  modelsDir:   store.get('modelsDir', ''),
 }));
 
-ipcMain.handle('save-settings', (_event, settings) => {
+ipcMain.handle('save-settings', async (_event, settings) => {
   if (typeof settings.openAiKey  === 'string') store.set('openAiKey',  settings.openAiKey);
   if (typeof settings.language   === 'string') store.set('language',   settings.language);
   if (typeof settings.whisperMode=== 'string') store.set('whisperMode',settings.whisperMode);
+  if (typeof settings.modelsDir  === 'string') {
+    const oldDir = store.get('modelsDir');
+    if (oldDir !== settings.modelsDir) {
+      store.set('modelsDir', settings.modelsDir);
+      try {
+        await fetch(`http://127.0.0.1:${SIDECAR_PORT}/settings/models-dir`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ models_dir: settings.modelsDir })
+        });
+      } catch (e) {
+        log.error('[main] Failed to sync models-dir settings with sidecar:', e.message);
+      }
+    }
+  }
   return { ok: true };
+});
+
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory']
+  });
+  return result;
 });
 
 ipcMain.handle('sidecar-port', () => SIDECAR_PORT);

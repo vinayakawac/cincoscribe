@@ -6,6 +6,8 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  license: LICENSE
+  runAfterFinish: true
 files:
   - "**/*"
   - "!server/**"

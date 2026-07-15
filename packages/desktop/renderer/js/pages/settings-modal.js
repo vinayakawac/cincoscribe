@@ -3,7 +3,7 @@
 
 async function renderSettingsPage(container) {
   // Load current settings from main process
-  let settings = { openAiKey: '', language: 'auto', whisperMode: 'fast' };
+  let settings = { openAiKey: '', language: 'auto', whisperMode: 'fast', modelsDir: '' };
 
   if (window.electronAPI && window.electronAPI.getSettings) {
     try {
@@ -16,6 +16,7 @@ async function renderSettingsPage(container) {
   let openAiKey = settings.openAiKey || '';
   let language = settings.language || 'auto';
   let whisperMode = settings.whisperMode || 'fast';
+  let modelsDir = settings.modelsDir || '';
 
   function render() {
     container.innerHTML = `
@@ -80,6 +81,26 @@ async function renderSettingsPage(container) {
           </div>
         </div>
 
+        <!-- Models Directory -->
+        <div style="border: 1px solid var(--clr-border); border-radius: var(--radius-lg); padding: 24px; background: var(--clr-bg-subtle);">
+          <h3 style="font-size: 15px; font-weight: 600; margin: 0 0 4px 0; color: var(--clr-text);">Models Storage Path</h3>
+          <p style="font-size: 12px; color: var(--clr-text-muted); margin: 0 0 16px 0;">
+            Choose where Whisper and TTS models are stored locally. Existing models will be migrated when changing path.
+          </p>
+          <div style="display: flex; gap: 8px;">
+            <input
+              id="settings-models-dir"
+              type="text"
+              value="${escapeHtml(modelsDir)}"
+              placeholder="Storage path..."
+              style="flex: 1; padding: 8px 12px; background: var(--clr-bg); border: 1px solid var(--clr-border); color: var(--clr-text); border-radius: var(--radius); font-size: 13px; box-sizing: border-box;"
+            />
+            ${window.electronAPI && window.electronAPI.selectDirectory ? `
+              <button id="btn-browse-models-dir" class="btn btn-secondary" style="font-size: 12px; padding: 0 12px; height: 34px;">Browse...</button>
+            ` : ''}
+          </div>
+        </div>
+
         <!-- Ko-fi -->
         <div style="border: 1px solid var(--clr-border); border-radius: var(--radius-lg); padding: 24px; background: var(--clr-bg-subtle); text-align: center;">
           <p style="font-size: 13px; color: var(--clr-text-muted); margin: 0 0 12px 0;">
@@ -109,13 +130,24 @@ async function renderSettingsPage(container) {
   }
 
   function bindEvents() {
+    document.getElementById('btn-browse-models-dir')?.addEventListener('click', async () => {
+      if (window.electronAPI && window.electronAPI.selectDirectory) {
+        const result = await window.electronAPI.selectDirectory();
+        if (!result.canceled && result.filePaths && result.filePaths.length > 0) {
+          const dirInput = document.getElementById('settings-models-dir');
+          if (dirInput) dirInput.value = result.filePaths[0];
+        }
+      }
+    });
+
     document.getElementById('btn-save-settings')?.addEventListener('click', async () => {
       openAiKey = document.getElementById('settings-openai-key')?.value || '';
       language = document.getElementById('settings-language')?.value || 'auto';
       whisperMode = document.querySelector('input[name="whisper-mode"]:checked')?.value || 'fast';
+      modelsDir = document.getElementById('settings-models-dir')?.value || '';
 
-      if (window.electronAPI?.saveSettings) {
-        await window.electronAPI.saveSettings({ openAiKey, language, whisperMode });
+      if (window.electronAPI && window.electronAPI.saveSettings) {
+        await window.electronAPI.saveSettings({ openAiKey, language, whisperMode, modelsDir });
       }
 
       const statusEl = document.getElementById('save-status');

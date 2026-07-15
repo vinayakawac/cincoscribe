@@ -20,3 +20,5 @@ nsis:
   installerHeaderIcon: build-dist/icon.ico
   installerIcon: build-dist/icon.ico
   uninstallerIcon: build-dist/icon.ico
+  license: ../../LICENSE
+  runAfterFinish: true

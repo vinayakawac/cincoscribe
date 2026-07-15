@@ -1,7 +1,7 @@
 import os
 import logging
 from fastapi import FastAPI
-from router import health, tts, asr
+from router import health, tts, asr, models
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,6 +13,7 @@ app = FastAPI(title="CincoScribe Sidecar", version="2.0.0", docs_url=None, redoc
 app.include_router(health.router)
 app.include_router(tts.router)
 app.include_router(asr.router)
+app.include_router(models.router)
 
 if __name__ == "__main__":
     import uvicorn

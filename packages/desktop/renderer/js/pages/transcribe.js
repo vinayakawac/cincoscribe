@@ -3,7 +3,7 @@
 function renderTranscribePage(container) {
   let selectedFile = null;
   let fileDuration = 0;
-  let mode = 'fast'; // 'fast' | 'accuracy'
+  let modelSize = 'base'; // 'base' | 'small' | 'medium' | 'large' | 'turbo'
   let language = 'en';
   let isTranscribing = false;
   let statusMessage = '';
@@ -70,38 +70,20 @@ function renderTranscribePage(container) {
   }
 
   function renderModeCards() {
+    const disabled = isTranscribing;
     return `
-      <div class="mode-grid">
-        <button class="mode-card ${mode === 'fast' ? 'selected' : ''}" data-mode="fast">
-          <div class="mode-card-header">
-            <span class="mode-card-title">
-              <span style="display:flex; align-items:center; gap:6px;">${Utils.icons.bolt} Fast</span>
-              <span class="tooltip-wrap">
-                <span class="tooltip-trigger">${Utils.icons.info}</span>
-                <span class="tooltip-content">Uses Whisper Tiny model (~40MB). Good accuracy, faster processing. Works well for clear speech in most languages.</span>
-              </span>
-            </span>
-            <div class="mode-card-right">
-              <div class="mode-radio"></div>
-            </div>
-          </div>
-          <p class="mode-card-desc">Quick &amp; lightweight. Great for most audio, including English.</p>
-        </button>
-        <button class="mode-card ${mode === 'accuracy' ? 'selected' : ''}" data-mode="accuracy">
-          <div class="mode-card-header">
-            <span class="mode-card-title">
-              <span style="display:flex; align-items:center; gap:6px;">${Utils.icons.target} Accuracy</span>
-              <span class="tooltip-wrap">
-                <span class="tooltip-trigger">${Utils.icons.info}</span>
-                <span class="tooltip-content">Uses Whisper Base model (~74MB). Better accuracy and context handling. Best for challenging audio.</span>
-              </span>
-            </span>
-            <div class="mode-card-right">
-              <div class="mode-radio"></div>
-            </div>
-          </div>
-          <p class="mode-card-desc">Enhanced accuracy with better context handling.</p>
-        </button>
+      <div class="card" style="display:flex; flex-direction:column; gap:var(--sp-3); border-color: var(--clr-border);">
+        <label class="form-label" style="font-weight: 600;">Transcription Model</label>
+        <p style="font-size: var(--fs-xs); color: var(--clr-text-muted); margin: 0;">
+          Select the Whisper model size. Larger models offer higher accuracy but consume more CPU and memory.
+        </p>
+        <select id="model-size-select" ${disabled ? 'disabled' : ''} style="width: 100%; padding: 8px 12px; background: var(--clr-bg); border: 1px solid var(--clr-border); color: var(--clr-text); border-radius: var(--radius); font-size: 13px; margin-top: 4px;">
+          <option value="base" ${modelSize === 'base' ? 'selected' : ''}>Whisper Base (~145MB) — Light CPU (Pre-installed)</option>
+          <option value="small" ${modelSize === 'small' ? 'selected' : ''}>Whisper Small (~460MB) — Medium CPU (Internet required)</option>
+          <option value="medium" ${modelSize === 'medium' ? 'selected' : ''}>Whisper Medium (~1.5GB) — Heavy CPU (Internet required)</option>
+          <option value="large" ${modelSize === 'large' ? 'selected' : ''}>Whisper Large (~3.0GB) — Very Heavy CPU (Internet required)</option>
+          <option value="turbo" ${modelSize === 'turbo' ? 'selected' : ''}>Whisper Turbo (~1.6GB) — Heavy CPU (Internet required)</option>
+        </select>
       </div>
     `;
   }
@@ -277,12 +259,13 @@ function renderTranscribePage(container) {
       });
     }
 
-    document.querySelectorAll('[data-mode]').forEach(card => {
-      card.addEventListener('click', () => {
-        mode = card.getAttribute('data-mode');
-        render();
+    const modelSizeSelect = document.getElementById('model-size-select');
+    if (modelSizeSelect) {
+      modelSizeSelect.value = modelSize;
+      modelSizeSelect.addEventListener('change', () => {
+        modelSize = modelSizeSelect.value;
       });
-    });
+    }
 
     const langSelect = document.getElementById('lang-select');
     if (langSelect) {
@@ -345,8 +328,6 @@ function renderTranscribePage(container) {
         throw new Error('Cannot get local file path.');
       }
 
-      const modelSize = mode === 'accuracy' ? 'base' : 'tiny';
-
       updateProgress('Transcribing audio via sidecar (' + modelSize + ')...', 50);
 
       const result = await window.cincoscribe.transcribe(audioPath, language, modelSize);
@@ -381,7 +362,7 @@ function renderTranscribePage(container) {
       // Save to history
       AppState.addHistory({
         name: selectedFile.name,
-        mode: mode,
+        mode: modelSize,
         language: language,
         duration: duration,
         wordCount: wordCount,

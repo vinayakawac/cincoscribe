@@ -8,35 +8,42 @@ logger = logging.getLogger(__name__)
 class FasterWhisperASR(ASRBackend):
     def __init__(self, models_dir: str):
         self.models_dir = Path(models_dir)
-        self._model = None
+        self._models = {}
         
-    def _ensure_model(self):
-        if self._model is not None:
-            return
+    def _ensure_model(self, model_size: str):
+        if model_size in self._models:
+            return self._models[model_size]
             
         try:
             from faster_whisper import WhisperModel
         except ImportError as exc:
             raise EngineError("faster-whisper is not installed.") from exc
 
-        logger.info("Loading Faster-Whisper base model (CPU)...")
+        repo_size = model_size
+        if model_size == "large":
+            repo_size = "large-v3"
+        elif model_size == "turbo":
+            repo_size = "large-v3-turbo"
+
+        logger.info(f"Loading Faster-Whisper {model_size} model (CPU)...")
         try:
-            # This auto-downloads to the HF cache by default
-            self._model = WhisperModel(
-                "base",
+            model = WhisperModel(
+                repo_size,
                 device="cpu",
                 compute_type="int8",
                 download_root=str(self.models_dir / "faster-whisper")
             )
+            self._models[model_size] = model
+            return model
         except Exception as exc:
-            raise EngineError(f"Failed to load Whisper model: {exc}")
+            raise EngineError(f"Failed to load Whisper model {model_size}: {exc}")
 
-    def transcribe(self, audio_path: str, language: str = None) -> dict:
-        self._ensure_model()
+    def transcribe(self, audio_path: str, language: str = None, model_size: str = "base") -> dict:
+        model = self._ensure_model(model_size)
         
         lang_arg = None if not language or language == "auto" else language
         try:
-            segments_gen, info = self._model.transcribe(
+            segments_gen, info = model.transcribe(
                 audio_path,
                 language=lang_arg,
                 beam_size=5,

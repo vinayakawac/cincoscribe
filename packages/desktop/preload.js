@@ -18,9 +18,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Sidecar
   getSidecarPort: ()         => ipcRenderer.invoke('sidecar-port'),
 
-  // File system dialogs (main-process gated, renderer cannot open arbitrary paths)
+  // File system dialogs
   openFileDialog: (opts)     => ipcRenderer.invoke('open-file-dialog', opts),
   saveFileDialog: (opts)     => ipcRenderer.invoke('save-file-dialog', opts),
+  selectDirectory:()         => ipcRenderer.invoke('select-directory'),
 });
 
 contextBridge.exposeInMainWorld('cincoscribe', {

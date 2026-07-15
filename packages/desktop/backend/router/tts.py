@@ -4,11 +4,11 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from engines.sherpa_tts import SherpaTTS
 from engines.base_tts import EngineError
+from config import models_dir
 
 router = APIRouter()
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
-tts_engine = SherpaTTS(MODELS_DIR)
+tts_engine = SherpaTTS(models_dir)
 
 class TTSPayload(BaseModel):
     text: str = Field(..., max_length=2000)
