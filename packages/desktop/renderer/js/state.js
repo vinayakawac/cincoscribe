@@ -81,6 +81,12 @@ const AppState = {
     this.save();
   },
 
+  deleteHistory(id) {
+    this.history = this.history.filter(item => (item.id || item.date) !== id);
+    this.save();
+    this._notify();
+  },
+
   /* ── Observer pattern ───────────────── */
   _listeners: [],
 

@@ -253,7 +253,8 @@ function renderMergeAudioPage(container) {
         let port = 5555;
         if (window.electronAPI) {
           port = await window.electronAPI.getSidecarPort();
-        const hostname = window.location.hostname || 'localhost';
+        }
+        const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
         const res = await fetch(`http://${hostname}:${port}/merge-audio`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

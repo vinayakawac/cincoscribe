@@ -86,9 +86,13 @@ function spawnSidecar() {
   sidecarProcess = spawn(cmd, args, {
     cwd: backendDir,
     stdio: ['ignore', 'pipe', 'pipe'],
-    // Ensure child is in its own process group so we can kill it cleanly
     detached: false,
     windowsHide: true,
+    env: {
+      ...process.env,
+      SIDECAR_PORT: String(SIDECAR_PORT),
+      VOICEBOX_MODELS_DIR: store.get('modelsDir') || ''
+    }
   });
 
   sidecarProcess.stdout.on('data', (d) => log.info('[sidecar stdout]', d.toString().trim()));
@@ -258,5 +262,20 @@ ipcMain.handle('save-file-dialog', async (_event, opts) => {
     defaultPath: opts?.defaultPath ?? 'output.wav',
     filters: opts?.filters ?? [{ name: 'WAV Audio', extensions: ['wav'] }],
   });
-  return result;
+ipcMain.handle('restart-sidecar', async (_event, newModelsDir) => {
+  log.info(`[main] Restarting sidecar with new path: ${newModelsDir}`);
+  killSidecar();
+  store.set('modelsDir', newModelsDir);
+  spawnSidecar();
+  return { success: true };
+});
+
+ipcMain.handle('open-path', async (_event, targetPath) => {
+  try {
+    await shell.openPath(targetPath);
+    return { success: true };
+  } catch (err) {
+    log.error('[main] openPath error:', err.message);
+    return { success: false, error: err.message };
+  }
 });

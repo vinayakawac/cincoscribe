@@ -24,7 +24,7 @@ function renderTranscribePage(container) {
       if (window.electronAPI) {
         port = await window.electronAPI.getSidecarPort();
       }
-      const hostname = window.location.hostname || 'localhost';
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
       const res = await fetch(`http://${hostname}:${port}/engines/models/status`);
       if (res.ok) {
         const data = await res.json();

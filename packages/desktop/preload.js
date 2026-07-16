@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFileDialog: (opts)     => ipcRenderer.invoke('open-file-dialog', opts),
   saveFileDialog: (opts)     => ipcRenderer.invoke('save-file-dialog', opts),
   selectDirectory:()         => ipcRenderer.invoke('select-directory'),
+  restartSidecar: (newPath)  => ipcRenderer.invoke('restart-sidecar', newPath),
+  openPath:       (target)   => ipcRenderer.invoke('open-path', target),
 });
 
 contextBridge.exposeInMainWorld('cincoscribe', {

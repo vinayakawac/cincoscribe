@@ -4,7 +4,7 @@ function renderTextToVoicePage(container) {
   let text = '';
   let selectedVoice = 'Raunak M';
   let speed = 1.0;
-  let modelSize = 'kokoro'; 
+  let modelSize = 'kokoro';
   let isGenerating = false;
   let progressPct = 0;
   let statusMessage = '';
@@ -35,7 +35,7 @@ function renderTextToVoicePage(container) {
       if (window.electronAPI) {
         port = await window.electronAPI.getSidecarPort();
       }
-      const hostname = window.location.hostname || 'localhost';
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
       const res = await fetch(`http://${hostname}:${port}/engines/models/status`);
       if (res.ok) {
         const data = await res.json();
@@ -51,12 +51,12 @@ function renderTextToVoicePage(container) {
           { id: 'tada_1b', name: 'TADA 1B (English)' },
           { id: 'tada_3b', name: 'TADA 3B Multilingual' }
         ];
-        
+
         const trueDownloaded = ttsModelsInfo.filter(m => data.tts[m.id] === true || m.id === 'kokoro');
         if (trueDownloaded.length > 0) {
           downloadedModels = trueDownloaded;
         }
-        
+
         if (!downloadedModels.some(m => m.id === modelSize)) {
           modelSize = downloadedModels[0].id;
         }
@@ -77,9 +77,6 @@ function renderTextToVoicePage(container) {
             ${renderMainActionRow()}
           </div>
           <div class="layout-sidebar" style="gap: var(--sp-5);">
-            <!-- Voice Preview Placeholder -->
-            ${renderVoicePreviewZone()}
-
             <!-- Voice Selector -->
             ${renderVoiceSelectorZone()}
 
@@ -115,20 +112,6 @@ function renderTextToVoicePage(container) {
     `;
   }
 
-  function renderVoicePreviewZone() {
-    return `
-      <div style="padding: 12px 16px; border: none; border-radius: var(--radius-lg); display: flex; align-items: center; gap: 12px; background: var(--clr-bg-subtle); color: var(--clr-text-muted); font-size: 11px;">
-        <button class="btn-icon-sm" id="btn-play-voice-preview" title="Play voice preview" style="background: var(--clr-primary); color: black; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-        </button>
-        <div style="display: flex; flex-direction: column; gap: 2px; overflow: hidden;">
-          <span style="font-weight: 600; color: var(--clr-text); font-size: 12px;">Voice Sample Preview</span>
-          <span style="color: var(--clr-text-faint); font-size: 10px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Click to preview: ${selectedVoice}</span>
-        </div>
-      </div>
-    `;
-  }
-
   function renderVoiceSelectorZone() {
     const voiceDescMap = {
       'Raunak M': 'Viral & Relatable Reel Voice',
@@ -142,7 +125,7 @@ function renderTextToVoicePage(container) {
       'Leo': 'Friendly & Welcoming Assistant Voice'
     };
     const desc = voiceDescMap[selectedVoice] || 'Natural Speech Voice';
-    
+
     return `
       <div class="settings-section-card" style="border: none; background: transparent; padding: 0; gap: 6px;">
         <label class="settings-section-title" style="margin-bottom: 0; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; color: var(--clr-text-faint);">Voice</label>
@@ -350,7 +333,7 @@ function renderTextToVoicePage(container) {
           gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
           osc.start();
           osc.stop(audioCtx.currentTime + 0.3);
-        } catch(e) {
+        } catch (e) {
           console.error(e);
         }
       });
@@ -469,8 +452,8 @@ function renderTextToVoicePage(container) {
         if (window.electronAPI) {
           port = await window.electronAPI.getSidecarPort();
         }
-        
-        const hostname = window.location.hostname || 'localhost';
+
+        const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
         const res = await fetch(`http://${hostname}:${port}/tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -504,7 +487,7 @@ function renderTextToVoicePage(container) {
 
       if (response && response.success && response.audioData) {
         updateProgress('Processing synthesized audio...', 90);
-        
+
         generatedAudioBase64 = response.audioData;
         generatedAudioDuration = response.duration || 0;
 

@@ -20,20 +20,22 @@ async function renderSettingsPage(container) {
   if (AppState.internetAccessAllowed !== undefined) {
     internetAccessAllowed = AppState.internetAccessAllowed;
   }
-  
+
   let activeTab = 'general';
   let isServerOnline = false;
   let logsInterval = null;
   let logsText = 'Loading logs...';
 
+
+
   // Check server health
   async function checkServerHealth() {
     try {
-      let port = 3901;
+      let port = 5555;
       if (window.electronAPI) {
         port = await window.electronAPI.getSidecarPort();
       }
-      const hostname = window.location.hostname || 'localhost';
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
       const res = await fetch(`http://${hostname}:${port}/health`);
       isServerOnline = res.ok;
     } catch (e) {
@@ -57,11 +59,11 @@ async function renderSettingsPage(container) {
 
   async function fetchLogs() {
     try {
-      let port = 3901;
+      let port = 5555;
       if (window.electronAPI) {
         port = await window.electronAPI.getSidecarPort();
       }
-      const hostname = window.location.hostname || 'localhost';
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
       const res = await fetch(`http://${hostname}:${port}/logs`);
       if (res.ok) {
         const data = await res.json();
@@ -84,11 +86,11 @@ async function renderSettingsPage(container) {
 
   async function clearLogs() {
     try {
-      let port = 3901;
+      let port = 5555;
       if (window.electronAPI) {
         port = await window.electronAPI.getSidecarPort();
       }
-      const hostname = window.location.hostname || 'localhost';
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
       await fetch(`http://${hostname}:${port}/logs/clear`, { method: 'POST' });
       logsText = 'Logs cleared.';
       const logsEl = document.getElementById('terminal-logs');
@@ -98,12 +100,35 @@ async function renderSettingsPage(container) {
     }
   }
 
+
+
   async function init() {
     await checkServerHealth();
     render();
   }
 
   function render() {
+    if (!document.body.contains(container)) {
+      stopLogsPolling();
+      return;
+    }
+
+    // Trigger log polling if logs tab is active
+    if (activeTab === 'logs') {
+      startLogsPolling();
+    } else {
+      stopLogsPolling();
+    }
+
+    const tabs = [
+      { id: 'general', label: 'General' },
+      { id: 'gpu', label: 'GPU' },
+      { id: 'logs', label: 'Logs' },
+      { id: 'about', label: 'About' }
+    ];
+
+
+
     container.innerHTML = `
       <style>
         .settings-container {
@@ -150,92 +175,79 @@ async function renderSettingsPage(container) {
           transition: all 200ms ease;
         }
         .social-card:hover {
+          border-color: var(--clr-border-med);
           background: var(--clr-bg-muted);
-          border-color: oklch(0.3 0 0);
-          transform: translateY(-1px);
         }
         .setting-group {
-          border-bottom: 1px solid var(--clr-border);
-          padding: var(--sp-5) 0;
           display: flex;
-          align-items: center;
           justify-content: space-between;
-          gap: var(--sp-4);
-        }
-        .setting-group-vertical {
+          align-items: center;
+          padding: var(--sp-4) 0;
           border-bottom: 1px solid var(--clr-border);
-          padding: var(--sp-5) 0;
-          display: flex;
-          flex-direction: column;
-          gap: var(--sp-3);
+        }
+        .setting-group:last-child {
+          border-bottom: none;
         }
         .setting-info {
-          flex-grow: 1;
-          max-width: 70%;
+          flex: 1;
+          padding-right: var(--sp-4);
         }
         .setting-label {
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 600;
           color: var(--clr-text);
-          margin: 0;
+          margin: 0 0 4px 0;
         }
         .setting-desc {
-          font-size: 12px;
+          font-size: 11px;
           color: var(--clr-text-muted);
-          margin: 4px 0 0 0;
+          margin: 0;
           line-height: 1.4;
         }
       </style>
-
-      <div class="page-container settings-container">
-        <!-- Tab Header -->
-        <div style="display: flex; gap: var(--sp-6); border-bottom: 1px solid var(--clr-border); padding-bottom: var(--sp-2); margin-bottom: var(--sp-6); overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch;">
-          <button class="settings-tab-btn ${activeTab === 'general' ? 'active' : ''}" data-tab="general">General</button>
-          <button class="settings-tab-btn ${activeTab === 'generation' ? 'active' : ''}" data-tab="generation">Generation</button>
-          <button class="settings-tab-btn ${activeTab === 'gpu' ? 'active' : ''}" data-tab="gpu">GPU</button>
-          <button class="settings-tab-btn ${activeTab === 'logs' ? 'active' : ''}" data-tab="logs">Logs</button>
-          <button class="settings-tab-btn ${activeTab === 'about' ? 'active' : ''}" data-tab="about">About</button>
+      <div class="page-container page-sections settings-container" style="position: relative;">
+        <!-- Navigation Tabs -->
+        <div style="display: flex; gap: var(--sp-6); border-bottom: 1px solid var(--clr-border); margin-bottom: var(--sp-6);">
+          ${tabs.map(tab => `
+            <button class="settings-tab-btn ${activeTab === tab.id ? 'active' : ''}" data-tab="${tab.id}">
+              ${tab.label}
+            </button>
+          `).join('')}
         </div>
 
         <!-- Tab Body -->
-        <div id="settings-tab-content">
+        <div class="settings-tab-content">
           ${renderTabContent()}
         </div>
       </div>
     `;
 
     bindEvents();
-    
-    if (activeTab === 'logs') {
-      startLogsPolling();
-    } else {
-      stopLogsPolling();
-    }
   }
 
   function renderTabContent() {
     if (activeTab === 'general') {
       return `
-        <!-- Links -->
+        <!-- Support Links -->
         <div style="display: flex; gap: var(--sp-4); margin-bottom: var(--sp-6);">
-          <a class="social-card" href="https://ko-fi.com/vinayaka" target="_blank">
+          <a href="https://ko-fi.com/vinayaka" target="_blank" class="social-card">
             <div>
-              <p style="font-size: 13px; font-weight: 600; color: var(--clr-text); margin: 0;">Support on Ko-fi</p>
-              <p style="font-size: 11px; color: var(--clr-text-muted); margin: 2px 0 0 0;">Consider donating to support development</p>
+              <h4 style="font-size: 13px; font-weight: 600; color: var(--clr-text); margin: 0 0 4px 0;">Support on Ko-fi</h4>
+              <p style="font-size: 11px; color: var(--clr-text-muted); margin: 0;">Consider donating to support development</p>
             </div>
-            <span style="color: var(--clr-text-muted); font-size: 14px;">↗</span>
+            <span style="color: var(--clr-text-faint);">${Utils.icons.chevronRight || '→'}</span>
           </a>
-          <a class="social-card" href="https://github.com/vinayakawac/CincoScribe" target="_blank">
+          <a href="https://github.com/vinayakawac/CincoScribe" target="_blank" class="social-card">
             <div>
-              <p style="font-size: 13px; font-weight: 600; color: var(--clr-text); margin: 0;">Join the GitHub</p>
-              <p style="font-size: 11px; color: var(--clr-text-muted); margin: 2px 0 0 0;">View codebase and report issues</p>
+              <h4 style="font-size: 13px; font-weight: 600; color: var(--clr-text); margin: 0 0 4px 0;">Join the GitHub</h4>
+              <p style="font-size: 11px; color: var(--clr-text-muted); margin: 0;">View codebase and report issues</p>
             </div>
-            <span style="color: var(--clr-text-muted); font-size: 14px;">↗</span>
+            <span style="color: var(--clr-text-faint);">${Utils.icons.chevronRight || '→'}</span>
           </a>
         </div>
 
         <!-- Server URL -->
-        <div class="setting-group">
+        <div class="setting-group" style="padding-top: 0;">
           <div class="setting-info">
             <h4 class="setting-label">Server URL</h4>
             <p class="setting-desc">The address of your CincoScribe sidecar backend server.</p>
@@ -248,7 +260,7 @@ async function renderSettingsPage(container) {
             <input
               id="settings-server-url"
               type="text"
-              value="http://${window.location.hostname || 'localhost'}:3901"
+              value="http://127.0.0.1:5555"
               disabled
               style="width: 100%; padding: 6px 10px; background: var(--clr-bg); border: 1px solid var(--clr-border); color: var(--clr-text-muted); border-radius: var(--radius); font-size: 12px; font-family: var(--ff-mono);"
             />
@@ -263,21 +275,21 @@ async function renderSettingsPage(container) {
           </div>
           <select id="settings-language" style="padding: 6px 10px; background: var(--clr-bg); border: 1px solid var(--clr-border); color: var(--clr-text); border-radius: var(--radius); font-size: 13px; min-width: 150px;">
             ${[
-              ['auto', 'Auto Detect'],
-              ['en', 'English'],
-              ['hi', 'Hindi'],
-              ['ar', 'Arabic'],
-              ['zh', 'Chinese'],
-              ['es', 'Spanish'],
-              ['fr', 'French'],
-              ['de', 'German'],
-              ['pt', 'Portuguese'],
-              ['ru', 'Russian'],
-              ['ja', 'Japanese'],
-              ['ko', 'Korean'],
-            ].map(([val, label]) =>
-              `<option value="${val}" ${language === val ? 'selected' : ''}>${label}</option>`
-            ).join('')}
+          ['auto', 'Auto Detect'],
+          ['en', 'English'],
+          ['hi', 'Hindi'],
+          ['ar', 'Arabic'],
+          ['zh', 'Chinese'],
+          ['es', 'Spanish'],
+          ['fr', 'French'],
+          ['de', 'German'],
+          ['pt', 'Portuguese'],
+          ['ru', 'Russian'],
+          ['ja', 'Japanese'],
+          ['ko', 'Korean'],
+        ].map(([val, label]) =>
+          `<option value="${val}" ${language === val ? 'selected' : ''}>${label}</option>`
+        ).join('')}
           </select>
         </div>
 
@@ -294,7 +306,7 @@ async function renderSettingsPage(container) {
         </div>
 
         <!-- Theme Selection -->
-        <div class="setting-group" style="border-bottom: none;">
+        <div class="setting-group">
           <div class="setting-info">
             <h4 class="setting-label">Theme</h4>
             <p class="setting-desc">Match your system appearance, or select dark view mode.</p>
@@ -305,48 +317,7 @@ async function renderSettingsPage(container) {
           </select>
         </div>
 
-        <!-- Footer Action -->
-        <div style="display: flex; justify-content: flex-end; margin-top: var(--sp-6);">
-          <button id="btn-save-settings" class="btn btn-primary">Save Settings</button>
-          <span id="save-status" style="display: none; margin-left: 12px; align-self: center; font-size: 13px; color: #10b981;">Saved!</span>
-        </div>
-      `;
-    } else if (activeTab === 'generation') {
-      return `
-        <!-- Default Model Size -->
-        <div class="setting-group" style="padding-top: 0;">
-          <div class="setting-info">
-            <h4 class="setting-label">Default Whisper Model</h4>
-            <p class="setting-desc">Select the default model size target used during new local audio transcriptions.</p>
-          </div>
-          <select id="settings-whisper-mode" style="padding: 6px 10px; background: var(--clr-bg); border: 1px solid var(--clr-border); color: var(--clr-text); border-radius: var(--radius); font-size: 13px; min-width: 150px;">
-            <option value="base" ${whisperMode === 'base' ? 'selected' : ''}>Whisper Base</option>
-            <option value="small" ${whisperMode === 'small' ? 'selected' : ''}>Whisper Small</option>
-            <option value="medium" ${whisperMode === 'medium' ? 'selected' : ''}>Whisper Medium</option>
-            <option value="large" ${whisperMode === 'large' ? 'selected' : ''}>Whisper Large</option>
-            <option value="turbo" ${whisperMode === 'turbo' ? 'selected' : ''}>Whisper Turbo</option>
-          </select>
-        </div>
 
-        <!-- Models Folder Path -->
-        <div class="setting-group-vertical" style="border-bottom: none;">
-          <div>
-            <h4 class="setting-label">Models Storage Path</h4>
-            <p class="setting-desc">Local directory where Whisper ASR and Voice TTS models are saved. Downloaded files migrate automatically when changed.</p>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <input
-              id="settings-models-dir"
-              type="text"
-              value="${escapeHtml(modelsDir)}"
-              placeholder="Storage path..."
-              style="flex: 1; padding: 8px 12px; background: var(--clr-bg); border: 1px solid var(--clr-border); color: var(--clr-text); border-radius: var(--radius); font-size: 13px; box-sizing: border-box;"
-            />
-            ${window.electronAPI && window.electronAPI.selectDirectory ? `
-              <button id="btn-browse-models-dir" class="btn btn-secondary" style="font-size: 12px; padding: 0 12px; height: 36px;">Browse...</button>
-            ` : ''}
-          </div>
-        </div>
 
         <!-- Footer Action -->
         <div style="display: flex; justify-content: flex-end; margin-top: var(--sp-6);">
@@ -367,46 +338,34 @@ async function renderSettingsPage(container) {
           </div>
           <div>
             <h3 style="font-family: var(--ff-display); font-size: 18px; font-weight: 700; color: var(--clr-text); margin: 0;">GPU Acceleration</h3>
-            <p style="font-size: 13px; color: var(--clr-text-muted); margin: 6px 0 0 0;">Coming Soon</p>
+            <p style="font-size: 13px; color: var(--clr-text-muted); margin: 6px 0 0 0;">Inference is automatically accelerated via CUDA if matching hardware is detected.</p>
           </div>
-          <p style="font-size: 13px; color: var(--clr-text-faint); max-width: 420px; line-height: 1.5; margin: 0;">
-            Local hardware acceleration (NVIDIA CUDA, Apple Silicon CoreML, and Windows DirectML) is currently under active development and will be released in an upcoming update for all users.
-          </p>
         </div>
       `;
     } else if (activeTab === 'logs') {
       return `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-3);">
-          <div>
-            <h4 class="setting-label">Server Logs</h4>
-            <p class="setting-desc">Live output streams from the local Python sidecar process.</p>
+        <div style="display: flex; flex-direction: column; height: 350px;">
+          <textarea
+            id="terminal-logs"
+            readonly
+            style="flex: 1; background: var(--clr-bg-code); color: #86868b; border: 1px solid var(--clr-border); border-radius: var(--radius-lg); padding: var(--sp-4); font-family: var(--ff-mono); font-size: 11px; line-height: 1.5; resize: none; overflow-y: auto; outline: none; margin-bottom: var(--sp-3);"
+          >${escapeHtml(logsText)}</textarea>
+          <div style="display: flex; justify-content: flex-end; gap: var(--sp-2);">
+            <button id="btn-clear-logs" class="btn btn-secondary" style="font-size: 12px; height: 32px; padding: 0 16px;">Clear Logs</button>
           </div>
-          <button id="btn-clear-logs" class="btn btn-secondary btn-sm" style="padding: 4px 12px; font-size: 12px; height: 28px;">Clear</button>
         </div>
-        <textarea
-          id="terminal-logs"
-          readonly
-          style="width: 100%; height: 350px; background: #000; border: 1px solid var(--clr-border); border-radius: var(--radius-lg); font-family: var(--ff-mono); font-size: 12px; color: #10b981; padding: 16px; box-sizing: border-box; resize: vertical; line-height: 1.5; outline: none;"
-        >${escapeHtml(logsText)}</textarea>
       `;
     } else if (activeTab === 'about') {
       return `
-        <div style="text-align: center; padding: var(--sp-6) 0; display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);">
-          <div style="font-size: 48px; color: var(--clr-text-muted); margin-bottom: 8px;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-              <line x1="12" x2="12" y1="19" y2="22"/>
-            </svg>
-          </div>
-          <div>
-            <h2 style="font-family: var(--ff-display); font-size: 22px; font-weight: 700; color: var(--clr-text); margin: 0;">CincoScribe</h2>
-            <p style="font-size: 12px; color: var(--clr-text-faint); margin: 4px 0 0 0;">v0.1.0</p>
-          </div>
-          <p style="font-size: 13px; color: var(--clr-text-muted); max-width: 480px; line-height: 1.5; margin: 0;">
-            The open-source local transcription and voice synthesis studio. Transcribe audio, synthesize speech, and run voice models locally on your CPU.
+        <div style="padding: var(--sp-2) 0;">
+          <h2 style="font-family: var(--ff-display); font-size: 20px; font-weight: 800; color: var(--clr-text); margin: 0 0 4px 0;">CincoScribe</h2>
+          <p style="font-size: 12px; color: var(--clr-text-faint); margin: 0 0 var(--sp-4) 0;">Version 0.1.0 • Built on Electron & FastAPI</p>
+          
+          <p style="font-size: 13px; color: var(--clr-text-muted); line-height: 1.6; margin: 0 0 var(--sp-6) 0; max-width: 600px;">
+            A local-first, privacy-focused speech transcription and voice synthesis workstation. All audio transcription and voice generations are processed locally on your computer—never sent to the cloud.
           </p>
-          <p style="font-size: 12px; color: var(--clr-text-faint); margin: 0;">
+
+          <p style="font-size: 12px; color: var(--clr-text-faint); margin: 0 0 8px 0; font-weight: 500;">
             Created by <span style="color: var(--clr-text-muted); font-weight: 600;">Vinayaka</span>
           </p>
           <div style="display: flex; gap: 12px; margin-top: 8px;">
@@ -443,8 +402,6 @@ async function renderSettingsPage(container) {
     // Save Settings
     document.getElementById('btn-save-settings')?.addEventListener('click', async () => {
       language = document.getElementById('settings-language')?.value || language;
-      whisperMode = document.getElementById('settings-whisper-mode')?.value || whisperMode;
-      modelsDir = document.getElementById('settings-models-dir')?.value || modelsDir;
       const internetVal = document.getElementById('settings-internet')?.value === 'true';
       internetAccessAllowed = internetVal;
 
@@ -463,16 +420,7 @@ async function renderSettingsPage(container) {
       }
     });
 
-    // Browse Directory
-    document.getElementById('btn-browse-models-dir')?.addEventListener('click', async () => {
-      if (window.electronAPI && window.electronAPI.selectDirectory) {
-        const result = await window.electronAPI.selectDirectory();
-        if (!result.canceled && result.filePaths && result.filePaths.length > 0) {
-          const dirInput = document.getElementById('settings-models-dir');
-          if (dirInput) dirInput.value = result.filePaths[0];
-        }
-      }
-    });
+
 
     // Clear Logs
     document.getElementById('btn-clear-logs')?.addEventListener('click', () => {

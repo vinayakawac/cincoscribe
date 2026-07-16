@@ -21,21 +21,27 @@ function renderModelsPage(container) {
   let errorMessage = '';
   let pollingInterval = null;
   let reconnectInterval = null;
+  let eventSource = null;
   let expandedModelKey = null; // Key of the currently expanded model
+
+  // Migration States
+  let isMigrating = false;
+  let migrationState = { percentage: 0, status: 'idle', copied: 0, total: 0, error: null, same_fs: true };
+  let migrationEventSource = null;
 
   async function fetchStatus() {
     try {
-      let port = 3901;
+      let port = 5555;
       if (window.electronAPI) {
         port = await window.electronAPI.getSidecarPort();
       }
-      const hostname = window.location.hostname || 'localhost';
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
       const res = await fetch(`http://${hostname}:${port}/engines/models/status`);
       if (res.ok) {
         const data = await res.json();
         modelStatus = data;
         currentModelsDir = data.current_models_dir || '';
-        
+
         // Sync local isDownloading with backend downloading list
         isDownloading = {};
         if (data.downloading) {
@@ -43,7 +49,7 @@ function renderModelsPage(container) {
             isDownloading[key] = true;
           });
         }
-        
+
         // Check if there are download errors to display
         if (data.errors && Object.keys(data.errors).length > 0) {
           const firstErrKey = Object.keys(data.errors)[0];
@@ -51,7 +57,7 @@ function renderModelsPage(container) {
         } else {
           errorMessage = '';
         }
-        
+
         stopOfflineReconnectPolling();
       } else {
         errorMessage = 'Failed to fetch model status from sidecar backend.';
@@ -94,15 +100,16 @@ function renderModelsPage(container) {
           return;
         }
         try {
-          let port = 3901;
+          let port = 5555;
           if (window.electronAPI) {
             port = await window.electronAPI.getSidecarPort();
           }
-          const hostname = window.location.hostname || 'localhost';
+          const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
           const res = await fetch(`http://${hostname}:${port}/health`);
           if (res.ok) {
             stopOfflineReconnectPolling();
             await fetchStatus();
+            startSSEProgressStream();
             render();
           }
         } catch (e) {
@@ -119,32 +126,182 @@ function renderModelsPage(container) {
     }
   }
 
+  function startSSEProgressStream() {
+    if (eventSource) return;
+
+    let port = 5555;
+    (async () => {
+      if (window.electronAPI) {
+        port = await window.electronAPI.getSidecarPort();
+      }
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
+      eventSource = new EventSource(`http://${hostname}:${port}/models/progress`);
+
+      eventSource.onmessage = (event) => {
+        if (!document.body.contains(container)) {
+          stopSSEProgressStream();
+          return;
+        }
+        try {
+          const progressData = JSON.parse(event.data);
+          modelStatus.progress = modelStatus.progress || {};
+
+          Object.keys(progressData).forEach(key => {
+            const prog = progressData[key];
+            modelStatus.progress[key] = prog;
+            isDownloading[key] = true;
+
+            // Direct in-place DOM update to eliminate scroll, focus, and visual flicker
+            const row = container.querySelector(`.model-row[data-model-key="${key}"]`);
+            if (row) {
+              const statusIconEl = row.querySelector('.model-status-icon');
+              if (statusIconEl && !statusIconEl.querySelector('.spinner-models-ring')) {
+                statusIconEl.innerHTML = `<div class="spinner-models-ring"></div>`;
+              }
+
+              const actionEl = row.querySelector('.model-details-action');
+              if (actionEl) {
+                const downloadedStr = formatBytes(prog.downloaded);
+                const totalStr = formatBytes(prog.total);
+                const speedStr = formatSpeed(prog.speed);
+
+                actionEl.innerHTML = `
+                  <div class="download-progress-box">
+                    <div class="download-progress-track">
+                      <div class="download-progress-bar" style="width: ${prog.percentage}%"></div>
+                    </div>
+                    <div class="download-progress-text">
+                      ${downloadedStr} / ${totalStr} (${prog.percentage}%) ${speedStr}
+                    </div>
+                  </div>
+                `;
+              }
+            }
+          });
+        } catch (err) {
+          console.error("Failed to parse SSE progress data", err);
+        }
+      };
+
+      eventSource.onerror = () => {
+        // Closed on error / disconnection to prevent memory leaks
+        stopSSEProgressStream();
+      };
+    })();
+  }
+
+  function stopSSEProgressStream() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  }
+
+  async function startMigration(newPath) {
+    if (newPath === currentModelsDir) return;
+
+    isMigrating = true;
+    migrationState = { percentage: 0, status: 'checking', copied: 0, total: 0, error: null, same_fs: true };
+    render();
+
+    try {
+      let port = 5555;
+      if (window.electronAPI) {
+        port = await window.electronAPI.getSidecarPort();
+      }
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
+
+      const res = await fetch(`http://${hostname}:${port}/models/migrate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ destination: newPath })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Migration request rejected by server');
+      }
+
+      migrationEventSource = new EventSource(`http://${hostname}:${port}/models/migrate/progress`);
+
+      migrationEventSource.onmessage = async (event) => {
+        try {
+          const state = JSON.parse(event.data);
+          migrationState = state;
+
+          if (state.status === 'completed') {
+            migrationEventSource.close();
+            migrationEventSource = null;
+
+            const finalPath = newPath === 'DEFAULT' ? '' : newPath;
+            if (window.electronAPI && window.electronAPI.restartSidecar) {
+              await window.electronAPI.restartSidecar(finalPath);
+            }
+
+            isMigrating = false;
+            
+            // Re-fetch status so currentModelsDir updates
+            await fetchStatus();
+            
+            Utils.showToast("Models storage migrated successfully!");
+            render();
+          } else if (state.status === 'failed') {
+            migrationEventSource.close();
+            migrationEventSource = null;
+            render();
+          } else {
+            render();
+          }
+        } catch (err) {
+          console.error("Failed to parse migration progress", err);
+        }
+      };
+
+      migrationEventSource.onerror = () => {
+        if (migrationEventSource) {
+          migrationEventSource.close();
+          migrationEventSource = null;
+        }
+        migrationState.status = 'failed';
+        migrationState.error = 'SSE connection broken';
+        render();
+      };
+
+    } catch (e) {
+      migrationState.status = 'failed';
+      migrationState.error = e.message;
+      render();
+    }
+  }
+
   async function triggerDownload(modelType, modelName) {
     if (localStorage.getItem('internetAccessAllowed') === 'false') {
       errorMessage = "Internet access is disabled in Settings. Please enable it to download models.";
+      Utils.showToast(errorMessage);
       render();
       return;
     }
 
     const key = `${modelType}:${modelName}`;
     if (isDownloading[key]) return;
-    
+
     isDownloading[key] = true;
     errorMessage = '';
     render();
 
     try {
-      let port = 3901;
+      let port = 5555;
       if (window.electronAPI) {
         port = await window.electronAPI.getSidecarPort();
       }
-      const hostname = window.location.hostname || 'localhost';
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
       const res = await fetch(`http://${hostname}:${port}/engines/models/download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model_type: modelType, model_name: modelName })
       });
       if (res.ok) {
+        Utils.showToast(`Starting download for ${modelName}...`);
         startPolling();
       } else {
         const err = await res.json();
@@ -153,6 +310,7 @@ function renderModelsPage(container) {
     } catch (e) {
       isDownloading[key] = false;
       errorMessage = `Download failed: ${e.message}`;
+      Utils.showToast(errorMessage);
     }
     render();
   }
@@ -166,15 +324,93 @@ function renderModelsPage(container) {
     return m.toFixed(1) + ' MB';
   }
 
+  function formatSpeed(bytesPerSec) {
+    if (!bytesPerSec) return '';
+    const kb = bytesPerSec / 1024;
+    if (kb >= 1000) {
+      return `• ${(kb / 1024).toFixed(1)} MB/s`;
+    }
+    return `• ${kb.toFixed(0)} KB/s`;
+  }
+
   async function init() {
     await fetchStatus();
     render();
+    startSSEProgressStream();
     if (modelStatus.downloading && modelStatus.downloading.length > 0) {
       startPolling();
     }
   }
 
   function render() {
+    // Stop all background listeners if elements are not mounted anymore
+    if (!document.body.contains(container)) {
+      stopPolling();
+      stopOfflineReconnectPolling();
+      stopSSEProgressStream();
+      if (migrationEventSource) {
+        migrationEventSource.close();
+        migrationEventSource = null;
+      }
+      return;
+    }
+
+    // Migration Overlay Markup
+    let migrationOverlayHtml = '';
+    if (isMigrating) {
+      const pct = migrationState.percentage;
+      const status = migrationState.status;
+      const errorText = migrationState.error;
+      const copiedStr = formatBytes ? formatBytes(migrationState.copied) : (migrationState.copied / (1024 * 1024)).toFixed(1) + ' MB';
+      const totalStr = formatBytes ? formatBytes(migrationState.total) : (migrationState.total / (1024 * 1024)).toFixed(1) + ' MB';
+
+      migrationOverlayHtml = `
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 10, 10, 0.85); display: flex; align-items: center; justify-content: center; z-index: 99999; backdrop-filter: blur(8px); animation: fade-in-overlay 0.3s ease both;">
+          <style>
+            @keyframes fade-in-overlay { from { opacity: 0; } to { opacity: 1; } }
+            .spinner-migration-ring {
+              width: 12px;
+              height: 12px;
+              border: 2px solid rgba(212, 163, 89, 0.2);
+              border-top-color: var(--clr-primary);
+              border-radius: 50%;
+              animation: spin-migration-loader 1s linear infinite;
+            }
+            @keyframes spin-migration-loader {
+              to { transform: rotate(360deg); }
+            }
+          </style>
+          <div style="background: var(--clr-bg-subtle); border: 1px solid var(--clr-border); border-radius: var(--radius-lg); padding: 32px; width: 440px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+            <h3 style="font-size: 16px; font-weight: 600; color: var(--clr-text); margin-bottom: 8px;">Migrating Models Storage</h3>
+            <p style="font-size: 12px; color: var(--clr-text-muted); margin-bottom: 24px; line-height: 1.5;">
+              Relocating files to the new location. Please do not close the application.
+            </p>
+            
+            <div style="width: 100%; height: 6px; background: var(--clr-border-med); border-radius: 99px; overflow: hidden; margin-bottom: 12px;">
+              <div style="width: ${pct}%; height: 100%; background: var(--clr-primary); border-radius: 99px; transition: width 0.3s ease;"></div>
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--clr-primary); font-weight: 600; margin-bottom: var(--sp-4);">
+              <span>${copiedStr} / ${totalStr}</span>
+              <span>${pct}%</span>
+            </div>
+            
+            ${errorText ? `
+              <div style="color: #ef4444; font-size: 12px; margin-top: 16px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); padding: 8px; border-radius: var(--radius); text-align: left; max-height: 100px; overflow-y: auto;">
+                Migration failed: ${errorText}
+              </div>
+              <button id="btn-close-migration-error" class="btn btn-secondary" style="margin-top: 16px; width: 100%; font-size: 12px;">Close</button>
+            ` : `
+              <div style="display: flex; justify-content: center; align-items: center; gap: 8px; color: var(--clr-text-muted); font-size: 11px;">
+                <span class="spinner-migration-ring"></span>
+                <span>${status === 'migrating' ? 'Transferring files...' : 'Finalizing migration...'}</span>
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
     const asrModels = [
       { name: 'Whisper Base', key: 'base', size: '281.1 MB', cpu: 'Light', desc: 'Default pre-installed model. Fast and fits most normal transcription tasks.' },
       { name: 'Whisper Small', key: 'small', size: '922.2 MB', cpu: 'Medium', desc: 'Balanced accuracy and resource usage. Requires download.' },
@@ -338,11 +574,7 @@ function renderModelsPage(container) {
         }
       </style>
       <div class="page-container page-sections models-container">
-        <div class="page-header" style="margin-bottom: var(--sp-4);">
-          <h1 class="page-title">Model <span class="page-title-sub">Management</span></h1>
-          <p class="page-subtitle">Configure offline AI models for transcription and text-to-speech</p>
-        </div>
-
+        ${migrationOverlayHtml}
         ${errorMessage ? `
           <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-lg); padding: var(--sp-4); color: #ef4444; font-size: var(--fs-sm); display: flex; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-4);">
             <span>${Utils.icons.info}</span>
@@ -357,6 +589,22 @@ function renderModelsPage(container) {
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
               `}</span>
               <span style="font-size: 11px; font-family: var(--ff-mono); color: var(--clr-text-faint);">${currentModelsDir}</span>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: center; font-size: 12px; font-weight: 600;">
+              ${window.electronAPI ? `
+                <a href="#" id="btn-open-models-dir" style="display: flex; align-items: center; gap: 4px; color: var(--clr-text-muted); text-decoration: none;">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+                  Open
+                </a>
+              ` : ''}
+              <a href="#" id="btn-change-models-dir" style="display: flex; align-items: center; gap: 4px; color: var(--clr-text-muted); text-decoration: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                Change
+              </a>
+              <a href="#" id="btn-reset-models-dir" style="display: flex; align-items: center; gap: 4px; color: var(--clr-text-muted); text-decoration: none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M16 3h5v5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 21H3v-5"/></svg>
+                Reset
+              </a>
             </div>
           </div>
         ` : ''}
@@ -425,17 +673,18 @@ function renderModelsPage(container) {
         </div>
       `;
     } else if (downloading) {
-      const prog = (modelStatus.progress && modelStatus.progress[key]) || { percentage: 5, downloaded: 0, total: 0 };
+      const prog = (modelStatus.progress && modelStatus.progress[key]) || { percentage: 5, downloaded: 0, total: 0, speed: 0.0 };
       const downloadedStr = formatBytes(prog.downloaded);
       const totalStr = formatBytes(prog.total);
-      
+      const speedStr = formatSpeed(prog.speed);
+
       actionHtml = `
         <div class="download-progress-box">
           <div class="download-progress-track">
             <div class="download-progress-bar" style="width: ${prog.percentage}%"></div>
           </div>
           <div class="download-progress-text">
-            ${downloadedStr} / ${totalStr} (${prog.percentage}%)
+            ${downloadedStr} / ${totalStr} (${prog.percentage}%) ${speedStr}
           </div>
         </div>
       `;
@@ -479,7 +728,7 @@ function renderModelsPage(container) {
         if (e.target.closest('.btn-dl') || e.target.closest('.btn-delete-model')) return;
         const row = header.closest('.model-row');
         const key = row.getAttribute('data-model-key');
-        
+
         // Single expand accordion logic
         if (expandedModelKey === key) {
           expandedModelKey = null;
@@ -506,13 +755,13 @@ function renderModelsPage(container) {
         e.stopPropagation();
         const type = btn.getAttribute('data-type');
         const name = btn.getAttribute('data-name');
-        if (confirm(`Are you sure you want to remove the ${name} model from local disk?`)) {
+        if (confirm(`Are you sure you want to remove the ${name} model from local disk?\n\nWARNING: This action is UNREVERSIBLE and the model will be deleted permanently.`)) {
           try {
-            let port = 3901;
+            let port = 5555;
             if (window.electronAPI) {
               port = await window.electronAPI.getSidecarPort();
             }
-            const hostname = window.location.hostname || 'localhost';
+            const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
             const res = await fetch(`http://${hostname}:${port}/engines/models/delete`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -531,6 +780,50 @@ function renderModelsPage(container) {
           }
         }
       });
+    });
+    // Open models path in file manager
+    document.getElementById('btn-open-models-dir')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (window.electronAPI && window.electronAPI.openPath) {
+        await window.electronAPI.openPath(currentModelsDir);
+      }
+    });
+
+    // Change models storage location (triggers migration)
+    document.getElementById('btn-change-models-dir')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      let newPath = '';
+      if (window.electronAPI && window.electronAPI.selectDirectory) {
+        const result = await window.electronAPI.selectDirectory();
+        if (!result.canceled && result.filePaths && result.filePaths.length > 0) {
+          newPath = result.filePaths[0];
+        }
+      } else {
+        newPath = prompt("Enter new absolute folder path for models:", currentModelsDir);
+      }
+
+      if (newPath) {
+        newPath = newPath.trim();
+        if (newPath && newPath !== currentModelsDir) {
+          if (confirm(`Migrate all downloaded models from:\n${currentModelsDir}\nto:\n${newPath}?`)) {
+            startMigration(newPath);
+          }
+        }
+      }
+    });
+
+    // Reset models storage path (triggers migration to default path)
+    document.getElementById('btn-reset-models-dir')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (confirm("Reset models storage path back to default location (.models)?")) {
+        startMigration('DEFAULT');
+      }
+    });
+
+    // Dismiss migration error modal
+    document.getElementById('btn-close-migration-error')?.addEventListener('click', () => {
+      isMigrating = false;
+      render();
     });
   }
 

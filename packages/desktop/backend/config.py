@@ -2,8 +2,16 @@ import os
 import shutil
 from pathlib import Path
 
-DEFAULT_MODELS_DIR = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".models")))
+voicebox_models_dir = os.environ.get("VOICEBOX_MODELS_DIR")
+if voicebox_models_dir:
+    DEFAULT_MODELS_DIR = Path(os.path.abspath(voicebox_models_dir))
+else:
+    DEFAULT_MODELS_DIR = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".models")))
+
 models_dir = DEFAULT_MODELS_DIR
+
+# On startup, config.py overrides the Hugging Face HF_HUB_CACHE environment variable with the new path
+os.environ["HF_HUB_CACHE"] = str(models_dir)
 
 def update_models_dir(new_path_str: str):
     global models_dir
