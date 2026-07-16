@@ -4,6 +4,7 @@ const Utils = {
 
   /* ── Time formatting ───────────────── */
   formatDuration(seconds) {
+    if (seconds == null || isNaN(seconds)) return '0s';
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
@@ -12,23 +13,28 @@ const Utils = {
   },
 
   formatTimestamp(seconds) {
+    if (seconds == null || isNaN(seconds)) return '0:00';
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
   },
 
   formatFileSize(bytes) {
+    if (bytes == null || isNaN(bytes)) return '0 B';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1048576).toFixed(1) + ' MB';
   },
 
   formatNumber(n) {
+    if (n == null || isNaN(n)) return '0';
     return n.toLocaleString();
   },
 
   formatDate(iso) {
+    if (!iso) return '';
     const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
     return d.toLocaleDateString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: '2-digit', minute: '2-digit',

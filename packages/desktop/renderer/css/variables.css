@@ -156,11 +156,11 @@
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm:      0 1px 3px oklch(0 0 0 / 0.15), 0 1px 2px oklch(0 0 0 / 0.10);
-  --shadow-md:      0 4px 12px oklch(0 0 0 / 0.20), 0 2px 6px oklch(0 0 0 / 0.12);
-  --shadow-lg:      0 10px 30px oklch(0 0 0 / 0.28), 0 4px 10px oklch(0 0 0 / 0.15);
-  --shadow-tooltip: 0 4px 14px oklch(0 0 0 / 0.30);
-  --shadow-glow:    0 0 0 1px oklch(1 0 0 / 0.10), 0 4px 16px oklch(1 0 0 / 0.08);
+  --shadow-sm:      none;
+  --shadow-md:      none;
+  --shadow-lg:      none;
+  --shadow-tooltip: none;
+  --shadow-glow:    none;
 
   /* Layout — Claude.ai rail structure */
   --rail-w:              52px;   /* icon rail always-visible width */

@@ -80,7 +80,6 @@
   justify-content: center;
   color: oklch(0.10 0.01 255);
   flex-shrink: 0;
-  box-shadow: 0 2px 8px oklch(0.72 0.16 58 / 0.30);
 }
 
 [data-theme="light"] .sidebar-logo-icon {

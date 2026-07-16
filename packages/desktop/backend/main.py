@@ -47,7 +47,7 @@ logger.info("Backend imports successful")
 
 # GPU Detection
 try:
-    import torch
+    import torch  # type: ignore
     if torch.cuda.is_available():
         gpu_name = torch.cuda.get_device_name(0)
         logger.info(f"GPU: CUDA ({gpu_name})")

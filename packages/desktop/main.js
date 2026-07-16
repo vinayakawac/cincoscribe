@@ -262,6 +262,8 @@ ipcMain.handle('save-file-dialog', async (_event, opts) => {
     defaultPath: opts?.defaultPath ?? 'output.wav',
     filters: opts?.filters ?? [{ name: 'WAV Audio', extensions: ['wav'] }],
   });
+  return result;
+});
 ipcMain.handle('restart-sidecar', async (_event, newModelsDir) => {
   log.info(`[main] Restarting sidecar with new path: ${newModelsDir}`);
   killSidecar();

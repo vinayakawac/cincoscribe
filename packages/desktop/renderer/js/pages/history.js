@@ -190,9 +190,12 @@ function renderHistoryPage(container) {
       });
     }
 
-    const deleteBtn = document.getElementById('btn-delete-history');
+    const deleteBtn = container.querySelector('#btn-delete-history');
     if (deleteBtn) {
-      deleteBtn.addEventListener('click', () => {
+      deleteBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
         const rawItems = AppState.history;
         const items = rawItems.filter(item => {
           const modeLower = (item.mode || '').toLowerCase();
