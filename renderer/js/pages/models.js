@@ -21,7 +21,7 @@ function renderModelsPage(container) {
   let errorMessage = '';
   let pollingInterval = null;
   let reconnectInterval = null;
-
+  let eventSource = null;
   let expandedModelKey = null; // Key of the currently expanded model
 
   // Migration States
@@ -76,9 +76,9 @@ function renderModelsPage(container) {
           stopPolling();
           return;
         }
-        const prevState = JSON.stringify([modelStatus.downloading, modelStatus.asr, modelStatus.tts, modelStatus.progress]);
+        const prevState = JSON.stringify([modelStatus.downloading, modelStatus.asr, modelStatus.tts]);
         await fetchStatus();
-        const nextState = JSON.stringify([modelStatus.downloading, modelStatus.asr, modelStatus.tts, modelStatus.progress]);
+        const nextState = JSON.stringify([modelStatus.downloading, modelStatus.asr, modelStatus.tts]);
         if (nextState !== prevState) {
           render();
         }
@@ -113,6 +113,7 @@ function renderModelsPage(container) {
           if (res.ok) {
             stopOfflineReconnectPolling();
             await fetchStatus();
+            startSSEProgressStream();
             render();
           }
         } catch (e) {
@@ -128,10 +129,161 @@ function renderModelsPage(container) {
       reconnectInterval = null;
     }
   }
-  function startMigration() {
-    errorMessage = 'Changing the models directory is not available in this build.';
-    Utils.showToast(errorMessage);
+
+  async function getSseTokenQuery() {
+    if (!window.electronAPI?.getSidecarToken) return '';
+    const token = await window.electronAPI.getSidecarToken();
+    return token ? `?token=${encodeURIComponent(token)}` : '';
+  }
+
+  function startSSEProgressStream() {
+    if (eventSource) return;
+
+    let port = 5555;
+    (async () => {
+      if (window.electronAPI) {
+        port = await window.electronAPI.getSidecarPort();
+      }
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
+
+      const tokenParam = await getSseTokenQuery();
+      eventSource = new EventSource(`http://${hostname}:${port}/models/progress${tokenParam}`);
+
+      eventSource.onmessage = (event) => {
+        if (!document.body.contains(container)) {
+          stopSSEProgressStream();
+          return;
+        }
+        try {
+          const progressData = JSON.parse(event.data);
+          modelStatus.progress = modelStatus.progress || {};
+
+          Object.keys(progressData).forEach(key => {
+            const prog = progressData[key];
+            modelStatus.progress[key] = prog;
+            isDownloading[key] = true;
+
+            // Direct in-place DOM update to eliminate scroll, focus, and visual flicker
+            const row = container.querySelector(`.model-row[data-model-key="${key}"]`);
+            if (row) {
+              const statusIconEl = row.querySelector('.model-status-icon');
+              if (statusIconEl && !statusIconEl.querySelector('.spinner-models-ring')) {
+                statusIconEl.innerHTML = `<div class="spinner-models-ring"></div>`;
+              }
+
+              const actionEl = row.querySelector('.model-details-action');
+              if (actionEl) {
+                const downloadedStr = formatBytes(prog.downloaded);
+                const totalStr = formatBytes(prog.total);
+                const speedStr = formatSpeed(prog.speed);
+
+                actionEl.innerHTML = `
+                  <div class="download-progress-box">
+                    <div class="download-progress-track">
+                      <div class="download-progress-bar" style="width: ${prog.percentage}%"></div>
+                    </div>
+                    <div class="download-progress-text">
+                      ${downloadedStr} / ${totalStr} (${prog.percentage}%) ${speedStr}
+                    </div>
+                  </div>
+                `;
+              }
+            }
+          });
+        } catch (err) {
+          console.error("Failed to parse SSE progress data", err);
+        }
+      };
+
+      eventSource.onerror = () => {
+        // Closed on error / disconnection to prevent memory leaks
+        stopSSEProgressStream();
+      };
+    })();
+  }
+
+  function stopSSEProgressStream() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  }
+
+  async function startMigration(newPath) {
+    if (newPath === currentModelsDir) return;
+
+    isMigrating = true;
+    migrationState = { percentage: 0, status: 'checking', copied: 0, total: 0, error: null, same_fs: true };
     render();
+
+    try {
+      let port = 5555;
+      if (window.electronAPI) {
+        port = await window.electronAPI.getSidecarPort();
+      }
+      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
+
+      const res = await fetch(`http://${hostname}:${port}/models/migrate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ destination: newPath })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Migration request rejected by server');
+      }
+
+      migrationEventSource = new EventSource(`http://${hostname}:${port}/models/migrate/progress${await getSseTokenQuery()}`);
+
+      migrationEventSource.onmessage = async (event) => {
+        try {
+          const state = JSON.parse(event.data);
+          migrationState = state;
+
+          if (state.status === 'completed') {
+            migrationEventSource.close();
+            migrationEventSource = null;
+
+            const finalPath = newPath === 'DEFAULT' ? '' : newPath;
+            if (window.electronAPI && window.electronAPI.restartSidecar) {
+              await window.electronAPI.restartSidecar(finalPath);
+            }
+
+            isMigrating = false;
+            
+            // Re-fetch status so currentModelsDir updates
+            await fetchStatus();
+            
+            Utils.showToast("Models storage migrated successfully!");
+            render();
+          } else if (state.status === 'failed') {
+            migrationEventSource.close();
+            migrationEventSource = null;
+            render();
+          } else {
+            render();
+          }
+        } catch (err) {
+          console.error("Failed to parse migration progress", err);
+        }
+      };
+
+      migrationEventSource.onerror = () => {
+        if (migrationEventSource) {
+          migrationEventSource.close();
+          migrationEventSource = null;
+        }
+        migrationState.status = 'failed';
+        migrationState.error = 'SSE connection broken';
+        render();
+      };
+
+    } catch (e) {
+      migrationState.status = 'failed';
+      migrationState.error = e.message;
+      render();
+    }
   }
 
   async function triggerDownload(modelType, modelName) {
@@ -196,6 +348,7 @@ function renderModelsPage(container) {
   async function init() {
     await fetchStatus();
     render();
+    startSSEProgressStream();
     if (modelStatus.downloading && modelStatus.downloading.length > 0) {
       startPolling();
     }
@@ -206,7 +359,7 @@ function renderModelsPage(container) {
     if (!document.body.contains(container)) {
       stopPolling();
       stopOfflineReconnectPolling();
-
+      stopSSEProgressStream();
       if (migrationEventSource) {
         migrationEventSource.close();
         migrationEventSource = null;

@@ -1,0 +1,424 @@
+/* ===== CincoScribe — Icon Rail Sidebar (Claude.ai style) ===== */
+
+/* ─────────────────────────────────────────────────────────────
+   DESKTOP: 52px icon rail that expands on hover to 220px
+   All label text is hidden by default, revealed on hover via
+   max-width + opacity CSS transition. Zero JS needed.
+───────────────────────────────────────────────────────────────*/
+
+/* ── Rail container ──────────────────────────────────────────── */
+.sidebar {
+  display: none;   /* hidden on mobile; shown ≥768px */
+  flex-direction: column;
+  width: var(--rail-w);
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  background: var(--clr-sidebar-bg);
+  border-right: 1px solid var(--clr-border);
+  overflow: hidden;  /* clip the expanded inner content when collapsed */
+  flex-shrink: 0;
+  z-index: 40;
+  transition: width var(--dur-slow) var(--ease-expo-out);
+}
+
+/* Hover or pinned expand */
+.sidebar:hover,
+.sidebar.pinned {
+  width: var(--rail-expanded-w);
+}
+
+.sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: var(--rail-expanded-w); /* inner always full expanded width */
+  min-width: var(--rail-expanded-w);
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .sidebar {
+    display: flex;
+  }
+}
+
+/* No collapsed state — rail is always 52px, expands on hover */
+.sidebar.collapsed {
+  width: var(--rail-w);
+}
+
+/* ── Logo / Brand mark ───────────────────────────────────────── */
+.sidebar-header {
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--clr-border);
+  flex-shrink: 0;
+  overflow: hidden;
+  gap: 12px;
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+/* The amber icon mark — always visible in rail */
+.sidebar-logo-icon {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  background: var(--clr-primary);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: oklch(0.10 0.01 255);
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .sidebar-logo-icon {
+  color: oklch(1 0 0);
+}
+
+/* Logo text — hidden in rail, revealed on hover */
+.sidebar-logo-text {
+  font-size: 15px;
+  letter-spacing: -0.03em;
+  color: var(--clr-text);
+  font-family: var(--ff-display);
+  white-space: nowrap;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width var(--dur-slow) var(--ease-expo-out),
+              opacity var(--dur-normal) var(--ease-out);
+}
+
+.sidebar:hover .sidebar-logo-text,
+.sidebar.pinned .sidebar-logo-text {
+  max-width: 140px;
+  opacity: 1;
+}
+
+.sidebar-logo-text span:first-child { font-weight: var(--fw-normal); opacity: 0.7; }
+.sidebar-logo-text span:last-child  { font-weight: var(--fw-bold); }
+
+/* Hide the collapse / icon buttons (not needed in rail model) */
+.btn-collapse,
+.btn-icon,
+.btn-expand-desktop {
+  display: none !important;
+}
+
+/* ── Navigation ──────────────────────────────────────────────── */
+.sidebar-nav {
+  flex: 1;
+  padding: var(--sp-3) 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar-nav-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--sp-2);
+}
+
+/* Each nav link: icon always visible, label hidden until hover */
+.nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 10px 10px;
+  border-radius: var(--radius-lg);
+  font-size: var(--fs-sm);
+  color: var(--clr-text-muted);
+  transition: color var(--dur-fast), background var(--dur-fast);
+  text-decoration: none;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  min-height: 40px;
+}
+
+.nav-link:hover {
+  color: var(--clr-text);
+  background: var(--clr-hover);
+}
+
+.nav-link.active {
+  color: var(--clr-active-nav-text);
+  background: var(--clr-active-nav-bg);
+}
+
+/* Icon — fixed width, centered */
+.nav-link-icon {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+/* Label — hidden in rail, revealed on sidebar hover */
+.nav-link-label {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width var(--dur-slow) var(--ease-expo-out),
+              opacity var(--dur-normal) var(--ease-out),
+              margin-left var(--dur-slow) var(--ease-expo-out);
+  margin-left: 0;
+  font-size: var(--fs-sm);
+}
+
+.sidebar:hover .nav-link-label,
+.sidebar.pinned .nav-link-label {
+  max-width: 160px;
+  opacity: 1;
+  margin-left: 10px;
+}
+
+/* Badge — also hidden/revealed with label */
+.nav-badge {
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  font-family: var(--ff-display);
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  background: var(--clr-success);
+  color: oklch(0.10 0.01 255);
+  flex-shrink: 0;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width var(--dur-slow) var(--ease-expo-out),
+              opacity var(--dur-normal) var(--ease-out);
+  margin-left: 0;
+}
+
+.sidebar:hover .nav-badge,
+.sidebar.pinned .nav-badge {
+  max-width: 50px;
+  opacity: 1;
+  margin-left: var(--sp-1);
+}
+
+/* ── User section (bottom of rail) ──────────────────────────── */
+.sidebar-user {
+  padding: var(--sp-2);
+  border-top: 1px solid var(--clr-border);
+  flex-shrink: 0;
+}
+
+.sidebar-user-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-lg);
+  transition: background var(--dur-fast);
+  overflow: hidden;
+  white-space: nowrap;
+  min-height: 40px;
+}
+
+.sidebar-user-btn:hover {
+  background: var(--clr-hover);
+}
+
+.user-avatar {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: var(--radius-md);
+  background: var(--clr-primary-subtle);
+  border: 1px solid var(--clr-border-med);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--fw-bold);
+  font-family: var(--ff-display);
+  font-size: 11px;
+  color: var(--clr-primary-text);
+  flex-shrink: 0;
+}
+
+.user-info {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width var(--dur-slow) var(--ease-expo-out),
+              opacity var(--dur-normal) var(--ease-out),
+              margin-left var(--dur-slow) var(--ease-expo-out);
+  margin-left: 0;
+}
+
+.sidebar:hover .user-info,
+.sidebar.pinned .user-info {
+  max-width: 140px;
+  opacity: 1;
+  margin-left: 10px;
+}
+
+.user-name {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--clr-text);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.user-plan {
+  font-size: 11px;
+  color: var(--clr-text-faint);
+  font-family: var(--ff-display);
+  white-space: nowrap;
+}
+
+/* ── Mobile Top Bar — hidden (replaced by bottom tabs) ───────── */
+.topbar-mobile {
+  display: none !important;
+}
+
+/* ── Mobile Slide-out Sidebar — hidden (replaced by tabs) ────── */
+.sidebar-mobile {
+  display: none !important;
+}
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--clr-overlay);
+  z-index: 49;
+  opacity: 0;
+  transition: opacity 280ms var(--ease-out);
+}
+
+.sidebar-overlay.visible {
+  display: block;
+  opacity: 1;
+}
+
+.btn-close-sidebar {
+  display: none;
+}
+
+/* ── Mobile Bottom Tab Bar ───────────────────────────────────── */
+.bottom-tabbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .bottom-tabbar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    height: var(--mobile-tabbar-h);
+    background: var(--clr-sidebar-bg);
+    border-top: 1px solid var(--clr-border);
+    align-items: stretch;
+    backdrop-filter: blur(12px);
+  }
+}
+
+.tab-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--clr-text-faint);
+  font-size: 10px;
+  font-family: var(--ff-display);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color var(--dur-fast), background var(--dur-fast);
+  border: none;
+  background: none;
+  padding: 8px 4px 10px;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tab-item:hover,
+.tab-item.active {
+  color: var(--clr-primary-text);
+}
+
+.tab-item.active {
+  background: var(--clr-primary-subtle);
+}
+
+.tab-item svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* User Dropdown styling */
+.dropdown-item:hover {
+  background: var(--clr-bg-muted) !important;
+}
+
+/* App Shell hide styling when not logged in */
+.no-shell .sidebar,
+.no-shell .topbar,
+.no-shell .bottom-tabbar {
+  display: none !important;
+}
+.no-shell .main-content {
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Sidebar Pin Button */
+.btn-pin-sidebar {
+  background: none;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--clr-text-muted);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur-normal) var(--ease-out);
+  opacity: 0;
+  pointer-events: none;
+  margin-left: auto;
+}
+
+.sidebar:hover .btn-pin-sidebar,
+.sidebar.pinned .btn-pin-sidebar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.btn-pin-sidebar:hover {
+  background: var(--clr-hover);
+  color: var(--clr-text);
+}
+
+.sidebar.pinned .btn-pin-sidebar {
+  color: var(--clr-primary);
+}
+

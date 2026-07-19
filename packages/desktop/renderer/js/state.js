@@ -1,5 +1,39 @@
 /* ===== CincoScribe Global State ===== */
 
+// Intercept all fetch requests to sidecar and automatically append the X-Sidecar-Token header
+if (window.electronAPI && window.electronAPI.getSidecarToken) {
+  const originalFetch = window.fetch;
+  window.fetch = async function (input, init) {
+    const rawUrl = typeof input === 'string' ? input : (input instanceof Request ? input.url : '');
+    let url;
+    try {
+      url = new URL(rawUrl, window.location.href);
+    } catch {
+      return originalFetch.call(this, input, init);
+    }
+
+    const port = String(await window.electronAPI.getSidecarPort());
+    const isSidecar = url.protocol === 'http:'
+      && (url.hostname === '127.0.0.1' || url.hostname === 'localhost')
+      && url.port === port;
+    if (!isSidecar) {
+      return originalFetch.call(this, input, init);
+    }
+
+    const token = await window.electronAPI.getSidecarToken();
+    if (!token) {
+      return originalFetch.call(this, input, init);
+    }
+
+    const requestHeaders = input instanceof Request ? input.headers : undefined;
+    const headers = new Headers(init?.headers || requestHeaders);
+    if (!headers.has('X-Sidecar-Token')) {
+      headers.set('X-Sidecar-Token', token);
+    }
+    return originalFetch.call(this, input, { ...init, headers });
+  };
+}
+
 const AppState = {
   user: {
     name: '',

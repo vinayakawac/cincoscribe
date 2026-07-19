@@ -15,8 +15,11 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const Store = require('electron-store');
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const log = require('electron-log/main');
 const { SIDECAR_PORT } = require('@cincoscribe/core');
+
+const SIDECAR_TOKEN = crypto.randomBytes(32).toString('hex');
 
 log.initialize();
 log.info('CincoScribe Desktop starting (free/MIT build)...');
@@ -91,7 +94,8 @@ function spawnSidecar() {
     env: {
       ...process.env,
       SIDECAR_PORT: String(SIDECAR_PORT),
-      VOICEBOX_MODELS_DIR: store.get('modelsDir') || ''
+      VOICEBOX_MODELS_DIR: store.get('modelsDir') || '',
+      SIDECAR_TOKEN: SIDECAR_TOKEN
     }
   });
 
@@ -174,12 +178,17 @@ async function syncModelsDirectory() {
   log.info(`[main] Syncing models directory with sidecar: ${currentDir}`);
   for (let i = 0; i < 10; i++) {
     try {
-      const res = await fetch(`http://127.0.0.1:${SIDECAR_PORT}/health`);
+      const res = await fetch(`http://127.0.0.1:${SIDECAR_PORT}/health`, {
+        headers: { 'X-Sidecar-Token': SIDECAR_TOKEN }
+      });
       if (res.ok) {
         log.info('[main] Sidecar is healthy. Sending settings sync...');
         const syncRes = await fetch(`http://127.0.0.1:${SIDECAR_PORT}/settings/models-dir`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Sidecar-Token': SIDECAR_TOKEN
+          },
           body: JSON.stringify({ models_dir: currentDir })
         });
         if (syncRes.ok) {
@@ -227,7 +236,10 @@ ipcMain.handle('save-settings', async (_event, settings) => {
       try {
         await fetch(`http://127.0.0.1:${SIDECAR_PORT}/settings/models-dir`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Sidecar-Token': SIDECAR_TOKEN
+          },
           body: JSON.stringify({ models_dir: settings.modelsDir })
         });
       } catch (e) {
@@ -246,6 +258,7 @@ ipcMain.handle('select-directory', async () => {
 });
 
 ipcMain.handle('sidecar-port', () => SIDECAR_PORT);
+ipcMain.handle('sidecar-token', () => SIDECAR_TOKEN);
 
 ipcMain.handle('open-file-dialog', async (_event, opts) => {
   const result = await dialog.showOpenDialog(mainWindow, {

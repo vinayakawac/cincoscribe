@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Sidecar
   getSidecarPort: ()         => ipcRenderer.invoke('sidecar-port'),
+  getSidecarToken:()         => ipcRenderer.invoke('sidecar-token'),
 
   // File system dialogs
   openFileDialog: (opts)     => ipcRenderer.invoke('open-file-dialog', opts),
@@ -29,9 +30,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 contextBridge.exposeInMainWorld('cincoscribe', {
   tts: async (text, voice) => {
     const port = await ipcRenderer.invoke('sidecar-port');
+    const token = await ipcRenderer.invoke('sidecar-token');
     const res = await fetch(`http://127.0.0.1:${port}/tts`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Sidecar-Token': token
+      },
       body: JSON.stringify({ text, voice, speed: 1.0 })
     });
     if (!res.ok) {
@@ -43,9 +48,13 @@ contextBridge.exposeInMainWorld('cincoscribe', {
   },
   transcribe: async (audioPath, language, modelSize) => {
     const port = await ipcRenderer.invoke('sidecar-port');
+    const token = await ipcRenderer.invoke('sidecar-token');
     const res = await fetch(`http://127.0.0.1:${port}/transcribe`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Sidecar-Token': token
+      },
       body: JSON.stringify({ audio_path: audioPath, language, model_size: modelSize })
     });
     if (!res.ok) {

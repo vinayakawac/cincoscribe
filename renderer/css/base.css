@@ -1,0 +1,247 @@
+/* ===== CincoScribe — Base & Layout ===== */
+
+/* ── Fonts ───────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Reset ───────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body {
+  height: 100vh;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--ff-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-normal);
+  color: var(--clr-text);
+  background: var(--clr-bg);
+  transition: background 200ms, color 200ms;
+}
+
+img, video { max-width: 100%; display: block; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+input, select, textarea { font-family: inherit; font-size: inherit; }
+a { color: var(--clr-primary-text); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+ul, ol { list-style: none; }
+
+/* ── Scrollbar ───────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--clr-scrollbar) transparent;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--clr-scrollbar);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--clr-scrollbar-hover); }
+
+/* ── Focus ───────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--clr-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   APP SHELL — Claude.ai structure
+   - 52px icon rail on desktop (sticky, left)
+   - Main area: fills rest of viewport
+   - Topbar: fixed 52px strip at top of content
+   - Content: max-width 680px, centered with padding
+───────────────────────────────────────────────────────────────*/
+.app-shell {
+  display: flex;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Main content column ─────────────────────────────────────── */
+.main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Topbar ──────────────────────────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--topbar-h);
+  background: var(--clr-topbar-bg);
+  border-bottom: 1px solid var(--clr-border);
+  display: flex;
+  align-items: center;
+  padding: 0 24px 0 28px;
+  gap: var(--sp-4);
+  backdrop-filter: blur(12px);
+  flex-shrink: 0;
+}
+
+.topbar-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  font-family: var(--ff-display);
+  color: var(--clr-text-muted);
+  letter-spacing: -0.01em;
+  flex: 1;
+}
+
+.topbar-title-primary {
+  color: var(--clr-text);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+#page-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PAGE LAYOUTS — centered content, Claude.ai prose width
+───────────────────────────────────────────────────────────────*/
+.page-container {
+  width: 100%;
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+
+/* Mobile: account for bottom tab bar */
+@media (max-width: 767px) {
+  .page-container {
+    padding-bottom: calc(var(--mobile-tabbar-h) + 24px);
+    padding-top: 28px;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
+.page-sections > * + * {
+  margin-top: var(--sp-8);
+}
+
+/* ── Page header ─────────────────────────────────────────────── */
+.page-header {
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--clr-border);
+  margin-bottom: var(--sp-6);
+  animation: fade-up var(--dur-enter) var(--ease-expo-out) both;
+}
+
+.page-title {
+  font-family: var(--ff-display);
+  font-size: clamp(1.35rem, 3vw, 1.65rem);
+  font-weight: var(--fw-bold);
+  color: var(--clr-text);
+  letter-spacing: -0.03em;
+  line-height: var(--lh-tight);
+  margin-bottom: var(--sp-2);
+}
+
+.page-title-sub {
+  color: var(--clr-primary-text);
+}
+
+.page-subtitle {
+  font-size: var(--fs-sm);
+  color: var(--clr-text-muted);
+  line-height: var(--lh-relaxed);
+}
+
+.page-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+
+/* ── Pill / badge ────────────────────────────────────────────── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  font-family: var(--ff-display);
+  letter-spacing: 0.01em;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: var(--clr-primary-subtle);
+  color: var(--clr-primary-text);
+  border: 1px solid oklch(0.72 0.16 58 / 0.20);
+}
+
+/* ── Section heading ─────────────────────────────────────────── */
+.section-label {
+  font-size: var(--fs-xs);
+  font-family: var(--ff-display);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--clr-text-faint);
+  margin-bottom: var(--sp-3);
+}
+
+/* ── Animations ──────────────────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

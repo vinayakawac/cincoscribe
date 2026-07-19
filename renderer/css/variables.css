@@ -1,0 +1,181 @@
+/* ===== CincoScribe Design Tokens ===== */
+
+/* ── Dark Theme (primary / default) ─────────────────── */
+:root,
+[data-theme="dark"] {
+
+  /* Brand */
+  --clr-primary:          oklch(0.95 0 0);
+  --clr-primary-hover:    oklch(0.85 0 0);
+  --clr-primary-dim:      oklch(0.70 0 0);
+  --clr-primary-subtle:   oklch(0.95 0 0 / 0.12);
+  --clr-primary-text:     oklch(0.95 0 0);
+
+  /* Backgrounds */
+  --clr-bg:               oklch(0.145 0 0);
+  --clr-bg-subtle:        oklch(0.185 0 0);
+  --clr-bg-muted:         oklch(0.225 0 0);
+  --clr-bg-code:          oklch(0.105 0 0);
+  --clr-sidebar-bg:       oklch(0.125 0 0);
+  --clr-topbar-bg:        oklch(0.145 0 0);
+
+  /* Surfaces */
+  --clr-card:             oklch(0.185 0 0);
+  --clr-surface-raised:   oklch(0.225 0 0);
+  --clr-white:            oklch(0.145 0 0);
+
+  /* Text */
+  --clr-text:             oklch(0.96 0 0);
+  --clr-text-muted:       oklch(0.80 0 0);
+  --clr-text-faint:       oklch(0.65 0 0);
+
+  /* Borders */
+  --clr-border:           oklch(0.96 0 0 / 0.12);
+  --clr-border-med:       oklch(0.96 0 0 / 0.16);
+  --clr-border-strong:    oklch(0.96 0 0 / 0.22);
+  --clr-border-hover:     oklch(0.96 0 0 / 0.30);
+  --clr-border-input:     oklch(0.96 0 0 / 0.25);
+
+  /* Status */
+  --clr-success:          oklch(0.85 0 0);
+  --clr-warning:          oklch(0.75 0 0);
+  --clr-error:            oklch(0.65 0 0);
+
+  /* Interaction */
+  --clr-hover:            oklch(0.96 0 0 / 0.08);
+  --clr-focus-ring:       oklch(0.96 0 0 / 0.25);
+  --clr-overlay:          oklch(0 0 0 / 0.65);
+  --clr-active-nav-bg:    oklch(0.96 0 0 / 0.12);
+  --clr-active-nav-text:  oklch(0.96 0 0);
+
+  /* Feedback */
+  --clr-toast-bg:         oklch(0.225 0 0);
+  --clr-toast-text:       oklch(0.96 0 0);
+
+  /* Scrollbar */
+  --clr-scrollbar:        oklch(0.96 0 0 / 0.15);
+  --clr-scrollbar-hover:  oklch(0.96 0 0 / 0.25);
+}
+
+/* ── Light Theme ─────────────────────────────────────── */
+[data-theme="light"] {
+
+  /* Brand */
+  --clr-primary:          oklch(0.10 0 0);
+  --clr-primary-hover:    oklch(0.20 0 0);
+  --clr-primary-dim:      oklch(0.35 0 0);
+  --clr-primary-subtle:   oklch(0.10 0 0 / 0.08);
+  --clr-primary-text:     oklch(0.10 0 0);
+
+  /* Backgrounds */
+  --clr-bg:               oklch(0.98 0 0);
+  --clr-bg-subtle:        oklch(0.96 0 0);
+  --clr-bg-muted:         oklch(0.94 0 0);
+  --clr-bg-code:          oklch(0.96 0 0);
+  --clr-sidebar-bg:       oklch(0.97 0 0);
+  --clr-topbar-bg:        oklch(0.98 0 0);
+
+  /* Surfaces */
+  --clr-card:             oklch(1 0 0);
+  --clr-surface-raised:   oklch(0.99 0 0);
+  --clr-white:            oklch(1 0 0);
+
+  /* Text */
+  --clr-text:             oklch(0.15 0 0);
+  --clr-text-muted:       oklch(0.45 0 0);
+  --clr-text-faint:       oklch(0.60 0 0);
+
+  /* Borders */
+  --clr-border:           oklch(0.15 0 0 / 0.08);
+  --clr-border-med:       oklch(0.15 0 0 / 0.12);
+  --clr-border-strong:    oklch(0.15 0 0 / 0.18);
+  --clr-border-hover:     oklch(0.15 0 0 / 0.25);
+  --clr-border-input:     oklch(0.15 0 0 / 0.20);
+
+  /* Status */
+  --clr-success:          oklch(0.35 0 0);
+  --clr-warning:          oklch(0.45 0 0);
+  --clr-error:            oklch(0.55 0 0);
+
+  /* Interaction */
+  --clr-hover:            oklch(0.10 0 0 / 0.06);
+  --clr-focus-ring:       oklch(0.10 0 0 / 0.20);
+  --clr-overlay:          oklch(0 0 0 / 0.40);
+  --clr-active-nav-bg:    oklch(0.10 0 0 / 0.08);
+  --clr-active-nav-text:  oklch(0.10 0 0);
+
+  /* Feedback */
+  --clr-toast-bg:         oklch(0.15 0 0);
+  --clr-toast-text:       oklch(0.98 0 0);
+
+  /* Scrollbar */
+  --clr-scrollbar:        oklch(0.15 0 0 / 0.12);
+  --clr-scrollbar-hover:  oklch(0.15 0 0 / 0.22);
+}
+
+/* ── Global tokens ───────────────────────────────────── */
+:root {
+  /* Typography */
+  --ff-display: 'DM Mono', ui-monospace, 'Cascadia Code', monospace;
+  --ff-sans:    'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --ff-mono:    'DM Mono', ui-monospace, 'Cascadia Code', monospace;
+
+  --fs-xs:    0.75rem;
+  --fs-sm:    0.875rem;
+  --fs-base:  1rem;
+  --fs-lg:    1.125rem;
+  --fs-xl:    1.25rem;
+  --fs-2xl:   1.5rem;
+
+  --fw-normal:   400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
+  --lh-tight:   1.25;
+  --lh-normal:  1.5;
+  --lh-relaxed: 1.75;
+
+  /* Spacing */
+  --sp-1:  0.25rem;
+  --sp-2:  0.5rem;
+  --sp-3:  0.75rem;
+  --sp-4:  1rem;
+  --sp-5:  1.25rem;
+  --sp-6:  1.5rem;
+  --sp-8:  2rem;
+  --sp-10: 2.5rem;
+  --sp-14: 3.5rem;
+
+  /* Radius */
+  --radius-sm:   0.375rem;
+  --radius-md:   0.5rem;
+  --radius-lg:   0.75rem;
+  --radius-xl:   1rem;
+  --radius-2xl:  1.25rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm:      none;
+  --shadow-md:      none;
+  --shadow-lg:      none;
+  --shadow-tooltip: none;
+  --shadow-glow:    none;
+
+  /* Layout — Claude.ai rail structure */
+  --rail-w:              52px;   /* icon rail always-visible width */
+  --rail-expanded-w:     220px;  /* hover-expand width */
+  --sidebar-w:           var(--rail-w);
+  --topbar-h:            52px;
+  --content-max-w:       100%;  /* Full layout width usage */
+  --mobile-tabbar-h:     60px;
+
+  /* Motion */
+  --ease-out:      cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-expo-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --dur-fast:   120ms;
+  --dur-normal: 200ms;
+  --dur-slow:   300ms;
+  --dur-enter:  360ms;
+}

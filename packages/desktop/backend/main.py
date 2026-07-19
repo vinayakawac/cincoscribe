@@ -40,8 +40,9 @@ from config import models_dir
 logger.info(f"Model download path set to: {models_dir}")
 
 logger.info("Importing routers and engine dependencies...")
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from router import health, tts, asr, models, merge
 logger.info("Backend imports successful")
 
@@ -61,16 +62,34 @@ logger.info("Ready")
 
 app = FastAPI(title="CincoScribe Sidecar", version="0.1.0", docs_url=None, redoc_url=None)
 
-# Add CORS Middleware to permit requests from browser
+# The packaged renderer is loaded from file:// and therefore sends Origin: null.
+# The per-launch sidecar token below remains the authorization boundary.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["null", "http://localhost:*", "http://127.0.0.1:*"],
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Sidecar-Token"],
+    expose_headers=[],
     max_age=3600,
 )
+
+
+@app.middleware("http")
+async def verify_sidecar_token(request: Request, call_next):
+    expected_token = os.environ.get("SIDECAR_TOKEN")
+    if not expected_token:
+        return JSONResponse(status_code=503, content={"detail": "Sidecar launch token is unavailable"})
+
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    token = request.headers.get("x-sidecar-token")
+
+    if token != expected_token:
+        return JSONResponse(status_code=403, content={"detail": "Forbidden: Invalid or missing sidecar token"})
+
+    return await call_next(request)
 
 app.include_router(health.router)
 app.include_router(tts.router)

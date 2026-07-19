@@ -1,73 +1,134 @@
+/**
+ * CincoScribe Desktop — main process
+ *
+ * License model: FREE / MIT. No activation, no fingerprinting, no server calls.
+ * App opens index.html unconditionally on launch.
+ *
+ * Sidecar: FastAPI backend spawned at startup on port 3901 (SIDECAR_PORT).
+ * Electron IPC surface is minimal — sidecar handles TTS and ASR via HTTP.
+ */
+
+'use strict';
+
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const Store = require('electron-store');
-const { machineId } = require('node-machine-id');
+const { spawn } = require('child_process');
 const crypto = require('crypto');
 const log = require('electron-log/main');
+const { SIDECAR_PORT } = require('@cincoscribe/core');
+
+const SIDECAR_TOKEN = crypto.randomBytes(32).toString('hex');
 
 log.initialize();
-log.info('CincoScribe Desktop App starting...');
-// fetch is built-in for Node 18+ which Electron uses
+log.info('CincoScribe Desktop starting (free/MIT build)...');
 
+// ── App settings (no license fields) ────────────────────────────────────────
 const store = new Store({
-  encryptionKey: process.env.STORE_ENCRYPTION_KEY || 'default-dev-key',
   schema: {
-    key: { type: 'string' },
-    fingerprint: { type: 'string' },
-    activatedAt: { type: 'string' },
-    firstLaunchAt: { type: 'string' }
+    openAiKey:  { type: 'string' },
+    language:   { type: 'string' },
+    whisperMode:{ type: 'string' },
+    modelsDir:  { type: 'string' },
+    internetAccessAllowed: { type: 'boolean' }
   }
 });
 
-let mainWindow;
-const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3001';
+let mainWindow = null;
+let sidecarProcess = null;
 
-async function generateFingerprint() {
-  const id = await machineId();
-  return crypto.createHash('sha256').update(id).digest('hex');
-}
-
-async function validateWithRetry(key, fingerprint, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fetch(`${SERVER_URL}/validate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, fingerprint, action: 'check' })
-      });
-      return await res.json();
-    } catch (err) {
-      if (i === retries - 1) {
-        log.error('Validation failed after retries: ' + err.message);
-        throw err;
-      }
-      log.warn(`Validation retry ${i+1} due to: ` + err.message);
-      await new Promise(r => setTimeout(r, 5000));
-    }
-  }
-}
-
-function createWindow(htmlFile, width, height, resizable = true) {
+// ── Window factory ───────────────────────────────────────────────────────────
+function createMainWindow() {
   const win = new BrowserWindow({
-    width,
-    height,
-    resizable,
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
-      contextIsolation: true
-    }
+      contextIsolation: true,
+    },
   });
+
   win.setMenuBarVisibility(false);
-  win.loadFile(htmlFile);
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   return win;
 }
 
-app.whenReady().then(async () => {
-  // Securely intercept and open external links in default browser
-  app.on('web-contents-created', (e, contents) => {
+// ── Sidecar lifecycle ────────────────────────────────────────────────────────
+
+/**
+ * Locate the Python executable.
+ * Windows: prefer `py` (Python Launcher), fallback `python`.
+ * Other platforms: `python3`.
+ */
+function pythonExe() {
+  return process.platform === 'win32' ? 'py' : 'python3';
+}
+
+/**
+ * Spawn the FastAPI sidecar.
+ * Sidecar path: packages/desktop/backend/server.py
+ * Managed by uv (uv run server.py).
+ */
+function spawnSidecar() {
+  const backendDir = path.join(__dirname, 'backend');
+  const serverScript = path.join(backendDir, 'main.py');
+
+  // uv run ensures the venv defined by pyproject.toml is used.
+  // Fallback: py main.py if uv is unavailable (dev convenience).
+  const [cmd, args] = process.platform === 'win32'
+    ? ['uv', ['run', serverScript]]
+    : ['uv', ['run', serverScript]];
+
+  log.info(`[sidecar] Spawning: ${cmd} ${args.join(' ')}`);
+
+  sidecarProcess = spawn(cmd, args, {
+    cwd: backendDir,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: false,
+    windowsHide: true,
+    env: {
+      ...process.env,
+      SIDECAR_PORT: String(SIDECAR_PORT),
+      VOICEBOX_MODELS_DIR: store.get('modelsDir') || '',
+      SIDECAR_TOKEN: SIDECAR_TOKEN
+    }
+  });
+
+  sidecarProcess.stdout.on('data', (d) => log.info('[sidecar stdout]', d.toString().trim()));
+  sidecarProcess.stderr.on('data', (d) => log.warn('[sidecar stderr]', d.toString().trim()));
+
+  sidecarProcess.on('error', (err) => {
+    log.error('[sidecar] Failed to start:', err.message);
+    sidecarProcess = null;
+  });
+
+  sidecarProcess.on('exit', (code, signal) => {
+    log.info(`[sidecar] Exited with code=${code} signal=${signal}`);
+    sidecarProcess = null;
+  });
+}
+
+function killSidecar() {
+  if (sidecarProcess) {
+    log.info('[sidecar] Terminating...');
+    try {
+      sidecarProcess.kill('SIGTERM');
+    } catch (e) {
+      log.warn('[sidecar] Kill error:', e.message);
+    }
+    sidecarProcess = null;
+  }
+}
+
+// ── App lifecycle ────────────────────────────────────────────────────────────
+app.whenReady().then(() => {
+  // Intercept window.open — open externals in system browser
+  app.on('web-contents-created', (_e, contents) => {
     contents.setWindowOpenHandler(({ url }) => {
       if (url.startsWith('http://') || url.startsWith('https://')) {
         shell.openExternal(url);
@@ -76,249 +137,161 @@ app.whenReady().then(async () => {
     });
   });
 
-  // Setup Auto-Updater
+  // Auto-updater (non-blocking, free app — update silently if possible)
   autoUpdater.logger = log;
-  autoUpdater.checkForUpdatesAndNotify();
-
-  autoUpdater.on('update-downloaded', (info) => {
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update Ready',
-      message: 'A new version of CincoScribe is ready to install. Restart now to apply the updates?',
-      buttons: ['Restart', 'Later']
-    }).then((result) => {
-      if (result.response === 0) {
-        autoUpdater.quitAndInstall();
-      }
-    });
+  autoUpdater.autoDownload = true;
+  autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+    log.warn('[updater] Check failed (non-fatal):', err.message);
   });
 
-  const key = store.get('key');
-  const fingerprint = store.get('fingerprint');
-  const activatedAt = store.get('activatedAt');
-  let firstLaunchAt = store.get('firstLaunchAt');
+  autoUpdater.on('update-downloaded', (info) => {
+    dialog
+      .showMessageBox({
+        type: 'info',
+        title: 'Update Ready',
+        message: `CincoScribe ${info.version} is ready. Restart to install?`,
+        buttons: ['Restart', 'Later'],
+      })
+      .then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+  });
 
-  if (!firstLaunchAt) {
-    firstLaunchAt = new Date().toISOString();
-    store.set('firstLaunchAt', firstLaunchAt);
+  // Set default modelsDir in store if not present
+  if (!store.get('modelsDir')) {
+    const defaultModelsDir = app.isPackaged
+      ? path.join(path.dirname(process.execPath), 'models')
+      : path.join(__dirname, 'backend', 'models');
+    store.set('modelsDir', defaultModelsDir);
   }
 
-  const now = new Date();
-  const launchDate = new Date(firstLaunchAt);
-  const hoursSinceLaunch = (now - launchDate) / (1000 * 60 * 60);
+  // Spawn the FastAPI sidecar before opening the window
+  spawnSidecar();
+  syncModelsDirectory();
 
-  if (!key || !fingerprint) {
-    if (hoursSinceLaunch < 24) {
-      mainWindow = createWindow('index.html', 1200, 800, true);
-    } else {
-      mainWindow = createWindow('activation.html', 400, 500, false);
-    }
-  } else {
-    try {
-      const result = await validateWithRetry(key, fingerprint);
-      if (result.valid) {
-        mainWindow = createWindow('index.html', 1200, 800, true);
-      } else if (result.reason === 'fingerprint_mismatch') {
-        mainWindow = createWindow('invalid.html', 400, 500, false);
-      } else {
-        mainWindow = createWindow('activation.html', 400, 500, false);
-      }
-    } catch (err) {
-      const now = new Date();
-      const activatedDate = new Date(activatedAt);
-      const daysSince = (now - activatedDate) / (1000 * 60 * 60 * 24);
-      log.error('License validation failed or server unreachable: ' + err.message);
-      if (daysSince < 7) {
-        mainWindow = createWindow('index.html', 1200, 800, true);
-      } else {
-        mainWindow = createWindow('offline-expired.html', 400, 500, false);
-      }
-    }
-  }
+  // Open main window unconditionally — no license gate
+  mainWindow = createMainWindow();
 });
 
+async function syncModelsDirectory() {
+  const currentDir = store.get('modelsDir');
+  log.info(`[main] Syncing models directory with sidecar: ${currentDir}`);
+  for (let i = 0; i < 10; i++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${SIDECAR_PORT}/health`, {
+        headers: { 'X-Sidecar-Token': SIDECAR_TOKEN }
+      });
+      if (res.ok) {
+        log.info('[main] Sidecar is healthy. Sending settings sync...');
+        const syncRes = await fetch(`http://127.0.0.1:${SIDECAR_PORT}/settings/models-dir`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Sidecar-Token': SIDECAR_TOKEN
+          },
+          body: JSON.stringify({ models_dir: currentDir })
+        });
+        if (syncRes.ok) {
+          log.info('[main] Models directory synced successfully.');
+        } else {
+          log.warn('[main] Models directory sync failed:', await syncRes.text());
+        }
+        break;
+      }
+    } catch (e) {
+      log.info(`[main] Waiting for sidecar health... (${i + 1}/10)`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+}
+
 app.on('window-all-closed', () => {
+  killSidecar();
   if (process.platform !== 'darwin') app.quit();
 });
 
-ipcMain.handle('validate', async (event, key) => {
-  const fingerprint = await generateFingerprint();
-  try {
-    const res = await fetch(`${SERVER_URL}/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, fingerprint, action: 'activate' })
-    });
-    return await res.json();
-  } catch (err) {
-    log.error('IPC validation error: ' + err.message);
-    return { valid: false, reason: 'server_error' };
-  }
-});
+app.on('before-quit', killSidecar);
 
-ipcMain.handle('deactivate', async (event, key) => {
-  const fingerprint = await generateFingerprint();
-  try {
-    const res = await fetch(`${SERVER_URL}/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, fingerprint, action: 'deactivate' })
-    });
-    return await res.json();
-  } catch (err) {
-    log.error('IPC deactivation error: ' + err.message);
-    return { valid: false, reason: 'server_error' };
-  }
-});
+// ── IPC handlers ─────────────────────────────────────────────────────────────
+// Minimal surface — TTS and ASR are handled by the sidecar over HTTP.
+// The renderer calls fetch('http://127.0.0.1:3901/...') directly via preload.
 
-ipcMain.handle('get-fingerprint', async () => {
-  return await generateFingerprint();
-});
+ipcMain.handle('get-settings', () => ({
+  openAiKey:   store.get('openAiKey', ''),
+  language:    store.get('language', 'auto'),
+  whisperMode: store.get('whisperMode', 'fast'),
+  modelsDir:   store.get('modelsDir', ''),
+  internetAccessAllowed: store.get('internetAccessAllowed', true),
+}));
 
-ipcMain.on('store-activation', (event, key, fingerprint) => {
-  store.set('key', key);
-  store.set('fingerprint', fingerprint);
-  store.set('activatedAt', new Date().toISOString());
-});
-
-ipcMain.handle('get-stored-activation', () => {
-  return {
-    key: store.get('key'),
-    fingerprint: store.get('fingerprint'),
-    activatedAt: store.get('activatedAt')
-  };
-});
-
-ipcMain.on('activation-complete', () => {
-  if (mainWindow) mainWindow.close();
-  mainWindow = createWindow('index.html', 1200, 800, true);
-});
-
-ipcMain.on('clear-activation', () => {
-  store.delete('key');
-  store.delete('fingerprint');
-  store.delete('activatedAt');
-});
-
-ipcMain.on('deactivation-complete', () => {
-  if (mainWindow) mainWindow.close();
-  mainWindow = createWindow('activation.html', 400, 500, false);
-});
-
-ipcMain.handle('generate-speech', async (event, { text, voice, speed, modelSize }) => {
-  const fs = require('fs');
-  const { spawn } = require('child_process');
-  
-  const modelNameMap = {
-    nano: 'KittenML/kitten-tts-nano-0.8',
-    micro: 'KittenML/kitten-tts-micro-0.8',
-    mini: 'KittenML/kitten-tts-mini-0.8'
-  };
-  const modelName = modelNameMap[modelSize] || modelNameMap.nano;
-
-  const tempWavPath = path.join(app.getPath('temp'), `tts_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.wav`);
-  const scriptPath = path.join(__dirname, 'tts_generate.py');
-
-  return new Promise((resolve) => {
-    // Per rules: "Always run python using the command py instead of python"
-    const pythonExe = process.platform === 'win32' ? 'py' : 'python3';
-    const child = spawn(pythonExe, ['-u', scriptPath]);
-
-    let stdoutData = '';
-    let stderrData = '';
-
-    child.stdout.on('data', (data) => {
-      stdoutData += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderrData += data.toString();
-    });
-
-    child.on('close', (code) => {
-      if (code !== 0) {
-        log.error(`TTS process exited with code ${code}. Stderr: ${stderrData}`);
-        resolve({ success: false, error: stderrData || `Process exited with code ${code}` });
-        return;
-      }
+ipcMain.handle('save-settings', async (_event, settings) => {
+  if (typeof settings.openAiKey  === 'string') store.set('openAiKey',  settings.openAiKey);
+  if (typeof settings.language   === 'string') store.set('language',   settings.language);
+  if (typeof settings.whisperMode=== 'string') store.set('whisperMode',settings.whisperMode);
+  if (typeof settings.internetAccessAllowed === 'boolean') store.set('internetAccessAllowed', settings.internetAccessAllowed);
+  if (typeof settings.modelsDir  === 'string') {
+    const oldDir = store.get('modelsDir');
+    if (oldDir !== settings.modelsDir) {
+      store.set('modelsDir', settings.modelsDir);
       try {
-        const result = JSON.parse(stdoutData.trim());
-        if (result.success && result.output_path) {
-          const audioBuffer = fs.readFileSync(result.output_path);
-          const base64Audio = audioBuffer.toString('base64');
-          try {
-            fs.unlinkSync(result.output_path);
-          } catch (e) {
-            log.error(`Failed to delete temp file: ${result.output_path}`, e);
-          }
-          resolve({
-            success: true,
-            duration: result.duration,
-            word_count: result.word_count,
-            audioData: base64Audio
-          });
-        } else {
-          resolve(result);
-        }
-      } catch (err) {
-        log.error(`Failed to parse TTS stdout: ${stdoutData}. Error: ${err.message}`);
-        resolve({ success: false, error: `Invalid output from generator script: ${stdoutData}` });
-      }
-    });
-
-    child.on('error', (err) => {
-      log.error(`Failed to start TTS process: ${err.message}`);
-      if (err.code === 'ENOENT' && pythonExe === 'py') {
-        log.info('py not found, retrying with python...');
-        const retryChild = spawn('python', ['-u', scriptPath]);
-        let retryStdout = '';
-        let retryStderr = '';
-
-        retryChild.stdout.on('data', (data) => { retryStdout += data.toString(); });
-        retryChild.stderr.on('data', (data) => { retryStderr += data.toString(); });
-
-        retryChild.on('close', (code) => {
-          if (code !== 0) {
-            resolve({ success: false, error: retryStderr || `Process exited with code ${code}` });
-            return;
-          }
-          try {
-            const result = JSON.parse(retryStdout.trim());
-            if (result.success && result.output_path) {
-              const audioBuffer = fs.readFileSync(result.output_path);
-              const base64Audio = audioBuffer.toString('base64');
-              try {
-                fs.unlinkSync(result.output_path);
-              } catch (e) {
-                log.error(`Failed to delete temp file: ${result.output_path}`, e);
-              }
-              resolve({
-                success: true,
-                duration: result.duration,
-                word_count: result.word_count,
-                audioData: base64Audio
-              });
-            } else {
-              resolve(result);
-            }
-          } catch (e) {
-            resolve({ success: false, error: `Invalid output: ${retryStdout}` });
-          }
+        await fetch(`http://127.0.0.1:${SIDECAR_PORT}/settings/models-dir`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Sidecar-Token': SIDECAR_TOKEN
+          },
+          body: JSON.stringify({ models_dir: settings.modelsDir })
         });
-
-        retryChild.on('error', (retryErr) => {
-          resolve({ success: false, error: `Python not found: ${retryErr.message}` });
-        });
-
-        retryChild.stdin.write(JSON.stringify({ text, voice, speed, model_name: modelName, output_path: tempWavPath }));
-        retryChild.stdin.end();
-        return;
+      } catch (e) {
+        log.error('[main] Failed to sync models-dir settings with sidecar:', e.message);
       }
-      resolve({ success: false, error: `Failed to start Python process: ${err.message}` });
-    });
-
-    child.stdin.write(JSON.stringify({ text, voice, speed, model_name: modelName, output_path: tempWavPath }));
-    child.stdin.end();
-  });
+    }
+  }
+  return { ok: true };
 });
 
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory']
+  });
+  return result;
+});
+
+ipcMain.handle('sidecar-port', () => SIDECAR_PORT);
+ipcMain.handle('sidecar-token', () => SIDECAR_TOKEN);
+
+ipcMain.handle('open-file-dialog', async (_event, opts) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: opts?.filters ?? [
+      { name: 'Audio/Video', extensions: ['mp3','mp4','wav','m4a','ogg','webm','mkv','flac'] }
+    ],
+  });
+  return result;
+});
+
+ipcMain.handle('save-file-dialog', async (_event, opts) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: opts?.defaultPath ?? 'output.wav',
+    filters: opts?.filters ?? [{ name: 'WAV Audio', extensions: ['wav'] }],
+  });
+  return result;
+});
+
+ipcMain.handle('restart-sidecar', async (_event, newModelsDir) => {
+  log.info(`[main] Restarting sidecar with new path: ${newModelsDir}`);
+  killSidecar();
+  store.set('modelsDir', newModelsDir);
+  spawnSidecar();
+  return { success: true };
+});
+
+ipcMain.handle('open-path', async (_event, targetPath) => {
+  try {
+    await shell.openPath(targetPath);
+    return { success: true };
+  } catch (err) {
+    log.error('[main] openPath error:', err.message);
+    return { success: false, error: err.message };
+  }
+});
