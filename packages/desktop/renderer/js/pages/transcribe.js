@@ -4,7 +4,13 @@ function renderTranscribePage(container) {
   const whisper = window.WhisperTranscriber;
   let selectedFile = null;
   let fileDuration = 0;
-  let modelSize = 'base'; // 'base' | 'small' | 'medium' | 'large' | 'turbo'
+  // 'fast' = Whisper Tiny, 'accuracy' = Whisper Base
+  const WASM_MODELS = [
+    { id: 'fast',     name: 'Whisper Tiny (Fast)' },
+    { id: 'accuracy', name: 'Whisper Base (Accurate)' },
+  ];
+
+  let modelMode = localStorage.getItem('whisperMode') || 'accuracy'; // whisper mode key
   let language = 'auto';
   let formatMode = 'normal'; // 'normal' | 'timestamps'
   let isTranscribing = false;
@@ -13,44 +19,6 @@ function renderTranscribePage(container) {
   let transcript = null;
   let liveTranscript = [];
   let activeTranscriptTab = 'plain'; // 'timestamps' | 'plain'
-
-  let downloadedModels = [
-    { id: 'base', name: 'Whisper Base' } // Default fallback
-  ];
-
-  async function fetchModelStatus() {
-    try {
-      let port = 5555;
-      if (window.electronAPI) {
-        port = await window.electronAPI.getSidecarPort();
-      }
-      const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
-      const res = await fetch(`http://${hostname}:${port}/engines/models/status`);
-      if (res.ok) {
-        const data = await res.json();
-        const asrModelsInfo = [
-          { id: 'base', name: 'Whisper Base' },
-          { id: 'small', name: 'Whisper Small' },
-          { id: 'medium', name: 'Whisper Medium' },
-          { id: 'large', name: 'Whisper Large' },
-          { id: 'turbo', name: 'Whisper Turbo' }
-        ];
-        
-        // Show only downloaded models
-        const trueDownloaded = asrModelsInfo.filter(m => data.asr[m.id] === true || m.id === 'base');
-        if (trueDownloaded.length > 0) {
-          downloadedModels = trueDownloaded;
-        }
-        
-        if (!downloadedModels.some(m => m.id === modelSize)) {
-          modelSize = downloadedModels[0].id;
-        }
-        render();
-      }
-    } catch (e) {
-      console.error('Failed to fetch model status', e);
-    }
-  }
 
   function render() {
     container.innerHTML = `
@@ -146,8 +114,8 @@ function renderTranscribePage(container) {
         <label class="settings-section-title" style="margin-bottom: 0; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; color: var(--clr-text-faint);">Transcription Model</label>
         <div style="position: relative; width: 100%;">
           <select id="select-model" style="width: 100%; padding: 12px 16px; font-size: 13px; font-weight: 500; color: var(--clr-text); border: none; border-radius: var(--radius-lg); background: var(--clr-bg-subtle); outline: none; appearance: none; cursor: pointer;">
-            ${downloadedModels.map(m => `
-              <option value="${m.id}" ${modelSize === m.id ? 'selected' : ''}>${m.name}</option>
+            ${WASM_MODELS.map(m => `
+              <option value="${m.id}" ${modelMode === m.id ? 'selected' : ''}>${m.name}</option>
             `).join('')}
           </select>
           <div style="position: absolute; right: 16px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--clr-text-muted); font-size: 10px;">
@@ -380,7 +348,8 @@ function renderTranscribePage(container) {
     const modelSelectEl = document.getElementById('select-model');
     if (modelSelectEl) {
       modelSelectEl.addEventListener('change', () => {
-        modelSize = modelSelectEl.value;
+        modelMode = modelSelectEl.value;
+        localStorage.setItem('whisperMode', modelMode);
       });
     }
 
@@ -462,18 +431,18 @@ function renderTranscribePage(container) {
     try {
       const apiKey = AppState.openAiKey;
       
-      // Ensure model is loaded if doing local transcription
+      // Ensure WASM model is loaded if doing local transcription
       if (!apiKey) {
         if (!whisper) {
           throw new Error('Whisper service is not loaded on this page.');
         }
         
-        // Map UI modelSize to WhisperTranscriber key
-        const mode = modelSize === 'base' ? 'accuracy' : 'fast';
-        const targetModel = whisper.models[mode] || whisper.models.fast;
+        const mode = modelMode; // 'fast' or 'accuracy'
+        const targetModel = whisper.models[mode] || whisper.models.accuracy;
         
         if (!whisper.isReady || whisper.currentLoadedModel !== targetModel) {
-          updateProgress('Downloading Whisper AI model (' + modelSize + ')... First time only.', 0);
+          const modelLabel = mode === 'fast' ? 'Tiny' : 'Base';
+          updateProgress('Downloading Whisper ' + modelLabel + ' model... First time only.', 0);
           
           await whisper.loadModel(mode, (data) => {
             if (data.status === 'progress') {
@@ -517,7 +486,7 @@ function renderTranscribePage(container) {
       // Add to history
       AppState.addHistory({
         name: selectedFile.name,
-        mode: modelSize,
+        mode: modelMode,
         language: language === 'auto' ? 'auto' : language,
         duration: fileDuration,
         wordCount: transcript.wordCount,
@@ -536,7 +505,6 @@ function renderTranscribePage(container) {
     render();
   }
 
-  fetchModelStatus();
   render();
 }
 

@@ -28,8 +28,18 @@ class FasterWhisperASR(ASRBackend):
     def __init__(self, models_dir: str):
         self.models_dir = Path(models_dir)
         self._current_size = None
+        self._current_device = None
+        self._current_compute_type = None
         self._model = None
         self._model_lock = threading.RLock()
+
+    @property
+    def current_device(self) -> str | None:
+        return self._current_device
+
+    @property
+    def current_compute_type(self) -> str | None:
+        return self._current_compute_type
 
     def _get_local_model_path(self, model_size: str) -> str | None:
         folder_name = MODEL_FOLDERS.get(model_size)
@@ -48,6 +58,8 @@ class FasterWhisperASR(ASRBackend):
             return {
                 "loaded": self._model is not None,
                 "model_size": self._current_size if self._model is not None else None,
+                "device": self._current_device,
+                "compute_type": self._current_compute_type,
             }
 
     def unload(self) -> bool:
@@ -57,8 +69,11 @@ class FasterWhisperASR(ASRBackend):
                 logger.info("Unloading Whisper model %s", self._current_size)
             self._model = None
             self._current_size = None
+            self._current_device = None
+            self._current_compute_type = None
             gc.collect()
             return was_loaded
+
 
     def load(self, model_size: str):
         with self._model_lock:
@@ -110,6 +125,8 @@ class FasterWhisperASR(ASRBackend):
 
             self._model = model
             self._current_size = model_size
+            self._current_device = device
+            self._current_compute_type = compute_type
             return model
 
     def _ensure_model(self, model_size: str):

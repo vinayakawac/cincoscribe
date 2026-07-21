@@ -28,7 +28,7 @@ async function renderSettingsPage(container) {
 
 
 
-  // Check server health
+  // Check server health with fast timeout
   async function checkServerHealth() {
     try {
       let port = 5555;
@@ -36,7 +36,10 @@ async function renderSettingsPage(container) {
         port = await window.electronAPI.getSidecarPort();
       }
       const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
-      const res = await fetch(`http://${hostname}:${port}/health`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 600);
+      const res = await fetch(`http://${hostname}:${port}/health`, { signal: controller.signal });
+      clearTimeout(timeoutId);
       isServerOnline = res.ok;
     } catch (e) {
       isServerOnline = false;
@@ -64,7 +67,10 @@ async function renderSettingsPage(container) {
         port = await window.electronAPI.getSidecarPort();
       }
       const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '127.0.0.1' : (window.location.hostname || 'localhost');
-      const res = await fetch(`http://${hostname}:${port}/logs`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 800);
+      const res = await fetch(`http://${hostname}:${port}/logs`, { signal: controller.signal });
+      clearTimeout(timeoutId);
       if (res.ok) {
         const data = await res.json();
         logsText = data.logs.join('\n') || 'No logs recorded.';
@@ -102,9 +108,11 @@ async function renderSettingsPage(container) {
 
 
 
-  async function init() {
-    await checkServerHealth();
+  function init() {
+    // Render UI IMMEDIATELY so page load is 0ms instant
     render();
+    // Check server health asynchronously in background
+    checkServerHealth().then(() => render());
   }
 
   function render() {

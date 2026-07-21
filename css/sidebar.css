@@ -68,22 +68,25 @@
   flex-shrink: 0;
 }
 
-/* The amber icon mark — always visible in rail */
+/* The icon mark — always visible in rail */
 .sidebar-logo-icon {
   width: 26px;
   height: 26px;
   min-width: 26px;
-  background: var(--clr-primary);
+  background: transparent;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: oklch(0.10 0.01 255);
   flex-shrink: 0;
+  overflow: hidden;
 }
 
-[data-theme="light"] .sidebar-logo-icon {
-  color: oklch(1 0 0);
+.sidebar-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
 }
 
 /* Logo text — hidden in rail, revealed on hover */

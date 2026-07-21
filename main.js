@@ -45,6 +45,7 @@ function createMainWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    icon: path.join(__dirname, 'renderer', 'cincoscribe.svg'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -74,7 +75,28 @@ function pythonExe() {
  * Sidecar path: packages/desktop/backend/server.py
  * Managed by uv (uv run server.py).
  */
+function killPort(port) {
+  if (process.platform === 'win32') {
+    try {
+      const out = execSync(`netstat -ano | findstr :${port}`).toString();
+      const lines = out.split('\n');
+      for (const line of lines) {
+        if (line.includes('LISTENING')) {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (pid && pid !== '0') {
+            log.info(`[sidecar] Clearing orphan process on port ${port} (PID ${pid})`);
+            try { execSync(`taskkill /pid ${pid} /T /F`); } catch (err) {}
+          }
+        }
+      }
+    } catch (e) {}
+  }
+}
+
 function spawnSidecar() {
+  killPort(SIDECAR_PORT);
+
   const backendDir = path.join(__dirname, 'backend');
   const serverScript = path.join(backendDir, 'main.py');
 
@@ -94,7 +116,8 @@ function spawnSidecar() {
     env: {
       ...process.env,
       SIDECAR_PORT: String(SIDECAR_PORT),
-      VOICEBOX_MODELS_DIR: store.get('modelsDir') || '',
+      CINCOSCRIBE_MODELS_DIR: store.get('modelsDir') || '',
+      VOICEBOX_MODELS_DIR: store.get('modelsDir') || '',   // legacy compat
       SIDECAR_TOKEN: SIDECAR_TOKEN
     }
   });
@@ -115,9 +138,14 @@ function spawnSidecar() {
 
 function killSidecar() {
   if (sidecarProcess) {
-    log.info('[sidecar] Terminating...');
+    log.info('[sidecar] Terminating process tree...');
     try {
-      sidecarProcess.kill('SIGTERM');
+      if (process.platform === 'win32') {
+        const { execSync } = require('child_process');
+        execSync(`taskkill /pid ${sidecarProcess.pid} /T /F`);
+      } else {
+        sidecarProcess.kill('SIGTERM');
+      }
     } catch (e) {
       log.warn('[sidecar] Kill error:', e.message);
     }
@@ -277,13 +305,23 @@ ipcMain.handle('save-file-dialog', async (_event, opts) => {
   });
   return result;
 });
-
 ipcMain.handle('restart-sidecar', async (_event, newModelsDir) => {
-  log.info(`[main] Restarting sidecar with new path: ${newModelsDir}`);
-  killSidecar();
+  log.info(`[main] Updating sidecar models path: ${newModelsDir}`);
   store.set('modelsDir', newModelsDir);
-  spawnSidecar();
-  return { success: true };
+  try {
+    const res = await sidecarFetch('/settings/models-dir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ models_dir: newModelsDir })
+    });
+    return { success: true, res };
+  } catch (err) {
+    log.warn('[main] Dynamic modelsDir update failed, restarting sidecar process...', err.message);
+    killSidecar();
+    await new Promise(r => setTimeout(r, 1000));
+    spawnSidecar();
+    return { success: true };
+  }
 });
 
 ipcMain.handle('open-path', async (_event, targetPath) => {
@@ -293,5 +331,60 @@ ipcMain.handle('open-path', async (_event, targetPath) => {
   } catch (err) {
     log.error('[main] openPath error:', err.message);
     return { success: false, error: err.message };
+  }
+});
+
+// ── Model lifecycle IPC (thin HTTP proxies to sidecar) ────────────────────────
+
+async function sidecarFetch(path, opts = {}) {
+  const url = `http://127.0.0.1:${SIDECAR_PORT}${path}`;
+  const headers = { 'X-Sidecar-Token': SIDECAR_TOKEN, ...opts.headers };
+  const res = await fetch(url, { ...opts, headers });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(body.detail || `HTTP ${res.status}`), { status: res.status, body });
+  return body;
+}
+
+ipcMain.handle('models:download', async (_e, modelId) => {
+  try {
+    return await sidecarFetch(`/models/${encodeURIComponent(modelId)}/download`, { method: 'POST' });
+  } catch (err) {
+    log.error('[main] models:download error:', err.message);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('models:download:cancel', async (_e, modelId) => {
+  try {
+    return await sidecarFetch(`/models/${encodeURIComponent(modelId)}/download/cancel`, { method: 'POST' });
+  } catch (err) {
+    log.error('[main] models:download:cancel error:', err.message);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('models:load', async (_e, { modelId, computeType, device, keepOthers } = {}) => {
+  try {
+    return await sidecarFetch(`/models/${encodeURIComponent(modelId)}/load`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        compute_type:  computeType  ?? null,
+        device:        device       ?? null,
+        keep_others:   keepOthers   ?? false,
+      }),
+    });
+  } catch (err) {
+    log.error('[main] models:load error:', err.message);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('models:unload', async (_e, modelId) => {
+  try {
+    return await sidecarFetch(`/models/${encodeURIComponent(modelId)}/unload`, { method: 'POST' });
+  } catch (err) {
+    log.error('[main] models:unload error:', err.message);
+    return { error: err.message };
   }
 });

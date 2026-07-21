@@ -20,6 +20,7 @@ async function build() {
     'main.js',
     'preload.js',
     'index.html',
+    'cincoscribe.svg',
     'activation.html',
     'invalid.html',
     'offline-expired.html',

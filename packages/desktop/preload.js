@@ -25,6 +25,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectDirectory:()         => ipcRenderer.invoke('select-directory'),
   restartSidecar: (newPath)  => ipcRenderer.invoke('restart-sidecar', newPath),
   openPath:       (target)   => ipcRenderer.invoke('open-path', target),
+
+  // Model lifecycle — three-operation contract: download → load → unload
+  modelsDownload:       (modelId)      => ipcRenderer.invoke('models:download', modelId),
+  modelsDownloadCancel: (modelId)      => ipcRenderer.invoke('models:download:cancel', modelId),
+  modelsLoad:           (modelId, opts) => ipcRenderer.invoke('models:load', { modelId, ...opts }),
+  modelsUnload:         (modelId)      => ipcRenderer.invoke('models:unload', modelId),
 });
 
 contextBridge.exposeInMainWorld('cincoscribe', {

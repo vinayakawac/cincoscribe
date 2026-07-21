@@ -68,17 +68,17 @@
   --clr-primary-text:     oklch(0.10 0 0);
 
   /* Backgrounds */
-  --clr-bg:               oklch(0.98 0 0);
-  --clr-bg-subtle:        oklch(0.96 0 0);
-  --clr-bg-muted:         oklch(0.94 0 0);
-  --clr-bg-code:          oklch(0.96 0 0);
-  --clr-sidebar-bg:       oklch(0.97 0 0);
-  --clr-topbar-bg:        oklch(0.98 0 0);
+  --clr-bg:               oklch(0.97 0.028 207.8);
+  --clr-bg-subtle:        oklch(0.94 0.032 207.8);
+  --clr-bg-muted:         oklch(0.92 0.035 207.8);
+  --clr-bg-code:          oklch(0.94 0.032 207.8);
+  --clr-sidebar-bg:       oklch(0.95 0.03 207.8);
+  --clr-topbar-bg:        oklch(0.97 0.028 207.8);
 
   /* Surfaces */
-  --clr-card:             oklch(1 0 0);
-  --clr-surface-raised:   oklch(0.99 0 0);
-  --clr-white:            oklch(1 0 0);
+  --clr-card:             oklch(0.97 0.028 207.8);
+  --clr-surface-raised:   oklch(0.985 0.02 207.8);
+  --clr-white:            oklch(0.97 0.028 207.8);
 
   /* Text */
   --clr-text:             oklch(0.15 0 0);

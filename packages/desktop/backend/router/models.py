@@ -1,259 +1,505 @@
+"""
+router/models.py — Model lifecycle endpoints: download, load, unload.
+
+Endpoint surface:
+  GET   /models                           — full registry + live state
+  POST  /models/{model_id}/download       — enqueue background download
+  GET   /models/{model_id}/download/status — poll download progress
+  POST  /models/{model_id}/download/cancel — cancel in-flight download
+  POST  /models/{model_id}/load           — instantiate WhisperModel / Voice model
+  POST  /models/{model_id}/unload         — free memory, keep files
+
+  GET   /engines/models/status            — legacy compat alias for GET /models
+"""
+
+from __future__ import annotations
+
+import gc
+import logging
+import shutil
 import threading
 import time
+from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from tqdm.auto import tqdm as base_tqdm
 
-from config import models_dir, update_models_dir
+import config
+from model_registry import (
+    MODEL_REGISTRY,
+    WHISPER_REGISTRY,
+    STATUS_DOWNLOADED,
+    STATUS_DOWNLOADING,
+    STATUS_LOADED,
+    STATUS_NOT_DOWNLOADED,
+    registry,
+)
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ── Pydantic payloads ─────────────────────────────────────────────────────────
 
-class DownloadPayload(BaseModel):
-    model_type: str
-    model_name: str
+class LoadPayload(BaseModel):
+    compute_type: Optional[str] = None   # override; None → use model default
+    device: Optional[str]       = None   # "cpu" | "cuda" | None → auto-detect
+    keep_others: bool           = False  # if False, unload current model first
 
 
 class SettingsPayload(BaseModel):
     models_dir: str
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _snapshot_path(model_id: str) -> Optional[str]:
+    """Return the local snapshot directory or folder for a downloaded model, or None."""
+    meta = MODEL_REGISTRY[model_id]
+    folder = meta["folder"]
+    target_path = config.models_dir / folder
+    snapshots = target_path / "snapshots"
+    if snapshots.is_dir():
+        dirs = sorted(p for p in snapshots.iterdir() if p.is_dir())
+        if dirs:
+            return str(dirs[0])
+    if target_path.is_dir() and any(target_path.iterdir()):
+        return str(target_path)
+    return None
+
+
+def _detect_device() -> tuple[str, str]:
+    """Return (device, compute_type) based on available hardware."""
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            return "cuda", "float16"
+    except ImportError:
+        pass
+    return "cpu", "int8"
+
+
+def _mem_rss() -> int:
+    """Current process RSS in bytes (CPU fallback)."""
+    try:
+        import psutil  # type: ignore
+        return psutil.Process().memory_info().rss
+    except Exception:
+        return 0
+
+
+def _cuda_mem() -> int:
+    """Currently allocated CUDA memory in bytes."""
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            return torch.cuda.memory_allocated()
+    except Exception:
+        pass
+    return 0
+
+
+def _free_cuda_cache() -> None:
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+try:
+    from tqdm.auto import tqdm as _BaseTqdm  # type: ignore
+    _TQDM_AVAILABLE = True
+except ImportError:
+    _BaseTqdm = object
+    _TQDM_AVAILABLE = False
+
 thread_local = threading.local()
 
+if _TQDM_AVAILABLE:
+    class CancellableTqdm(_BaseTqdm):  # type: ignore[misc]
+        """Custom tqdm class that signals the registry and aborts if cancel_event is set."""
 
-class ProgressManager:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self.active_tasks = {}
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._model_id     = getattr(thread_local, "active_model_id", None)
+            self._cancel_event = getattr(thread_local, "active_cancel_event", None)
+            if self._model_id:
+                registry.update_progress(self._model_id, 0, self.total or 0, 0.0)
 
-    def start_task(self, task_id, total_bytes, desc="Downloading"):
-        with self._lock:
-            self.active_tasks[task_id] = {
-                "desc": desc,
-                "downloaded": 0,
-                "total": total_bytes or 0,
-                "speed": 0.0,
-                "start_time": time.time(),
-            }
-
-    def update_task(self, task_id, downloaded_bytes, speed=None):
-        with self._lock:
-            task = self.active_tasks.get(task_id)
-            if task is None:
-                return
-            task["downloaded"] = downloaded_bytes
-            if speed is not None:
-                task["speed"] = float(speed)
-            else:
-                elapsed = time.time() - task["start_time"]
-                task["speed"] = downloaded_bytes / elapsed if elapsed > 0 else 0.0
-
-    def complete_task(self, task_id):
-        with self._lock:
-            self.active_tasks.pop(task_id, None)
-
-    def get_progress(self):
-        with self._lock:
-            return {key: dict(value) for key, value in self.active_tasks.items()}
+        def update(self, n: int = 1) -> None:
+            cancel_evt = getattr(thread_local, "active_cancel_event", None)
+            if cancel_evt and cancel_evt.is_set():
+                raise InterruptedError("Download cancelled by user")
+            super().update(n)
+            model_id = getattr(thread_local, "active_model_id", None)
+            if model_id:
+                rate = self.format_dict.get("rate") or 0.0
+                registry.update_progress(
+                    model_id,
+                    self.n,
+                    self.total or 0,
+                    float(rate),
+                )
+else:
+    CancellableTqdm = None  # type: ignore[assignment,misc]
 
 
-progress_manager = ProgressManager()
+# ── Download worker (runs in daemon thread) ───────────────────────────────────
+
+def _download_worker(model_id: str, cancel_event: threading.Event) -> None:
+    meta     = MODEL_REGISTRY[model_id]
+    repo_id  = meta["repo_id"]
+    folder   = meta["folder"]
+    dest_dir = config.models_dir / folder
+
+    logger.info("[models] Starting download: %s from %s", model_id, repo_id)
+
+    thread_local.active_model_id = model_id
+    thread_local.active_cancel_event = cancel_event
+
+    try:
+        from huggingface_hub import snapshot_download  # type: ignore
+
+        kwargs: dict = dict(
+            repo_id=repo_id,
+            allow_patterns=meta.get("allow_patterns"),
+            local_files_only=False,
+        )
+
+        if meta.get("local_dir"):
+            kwargs["local_dir"] = str(dest_dir)
+        else:
+            kwargs["cache_dir"] = str(config.models_dir)
+
+        if CancellableTqdm is not None:
+            kwargs["tqdm_class"] = CancellableTqdm
+
+        snapshot_download(**kwargs)
+
+        if cancel_event.is_set():
+            raise InterruptedError("Download cancelled by user")
+
+        registry.set_downloaded(model_id)
+        logger.info("[models] Download complete: %s", model_id)
+
+    except InterruptedError:
+        logger.info("[models] Download cancelled: %s — cleaning up partial files", model_id)
+        _cleanup_partial(dest_dir)
+        registry.set_failed(model_id, "cancelled")
+
+    except Exception as exc:
+        logger.error("[models] Download failed: %s — %s", model_id, exc)
+        _cleanup_partial(dest_dir)
+        registry.set_failed(model_id, str(exc))
+
+    finally:
+        thread_local.__dict__.pop("active_model_id", None)
+        thread_local.__dict__.pop("active_cancel_event", None)
 
 
-class PatchedTqdm(base_tqdm):
-    """Explicit progress adapter; do not monkeypatch tqdm module globals."""
+def _cleanup_partial(dest_dir: Path) -> None:
+    """Remove incomplete download artefacts."""
+    blobs = dest_dir / "blobs"
+    tmp   = dest_dir / "tmp"
+    for p in (blobs, tmp):
+        if p.exists():
+            try:
+                shutil.rmtree(p)
+            except Exception as e:
+                logger.warning("[models] cleanup error for %s: %s", p, e)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._model_key = getattr(thread_local, "active_model_key", None)
-        if self._model_key:
-            progress_manager.start_task(
-                self._model_key,
-                total_bytes=self.total or 0,
-                desc=kwargs.get("desc", "Downloading"),
+
+# ── Load helper with OOM fallback ─────────────────────────────────────────────
+
+def _load_whisper(model_id: str, local_path: str, device: str, compute_type: str) -> tuple[object, str, str]:
+    """
+    Try to load WhisperModel with OOM fallback chain:
+      float16/cuda → int8/cuda → int8/cpu
+    Returns (model_instance, used_compute_type, used_device).
+    """
+    from faster_whisper import WhisperModel  # type: ignore
+
+    attempts = [(device, compute_type)]
+    if device == "cuda" and compute_type == "float16":
+        attempts += [("cuda", "int8"), ("cpu", "int8")]
+    elif device == "cuda":
+        attempts += [("cpu", "int8")]
+
+    last_exc: Exception = RuntimeError("no attempts")
+    for dev, ct in attempts:
+        try:
+            logger.info("[models] Loading %s on %s/%s", model_id, dev, ct)
+            model = WhisperModel(
+                local_path,
+                device=dev,
+                compute_type=ct,
+                download_root=str(config.models_dir),
+                cpu_threads=4,
             )
+            if (dev, ct) != (device, compute_type):
+                logger.warning(
+                    "[models] OOM fallback for %s: using %s/%s instead of %s/%s",
+                    model_id, dev, ct, device, compute_type,
+                )
+            return model, ct, dev
+        except Exception as exc:
+            logger.warning("[models] Load attempt (%s/%s) failed: %s", dev, ct, exc)
+            last_exc = exc
 
-    def update(self, n=1):
-        super().update(n)
-        if self._model_key:
-            progress_manager.update_task(
-                self._model_key,
-                downloaded_bytes=self.n,
-                speed=self.format_dict.get("rate"),
-            )
-
-    def close(self):
-        super().close()
-        if self._model_key:
-            progress_manager.complete_task(self._model_key)
+    raise last_exc
 
 
-MODEL_FOLDER_MAP = {
-    "base": "models--Systran--faster-whisper-base",
-    "small": "models--Systran--faster-whisper-small",
-    "medium": "models--Systran--faster-whisper-medium",
-    "large": "models--Systran--faster-whisper-large-v3",
-    "turbo": "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo",
-    "kokoro": "kokoro-en-v0_19",
-}
+# ── GET /models ───────────────────────────────────────────────────────────────
 
-ASR_REPO_MAP = {
-    "base": "Systran/faster-whisper-base",
-    "small": "Systran/faster-whisper-small",
-    "medium": "Systran/faster-whisper-medium",
-    "large": "Systran/faster-whisper-large-v3",
-    "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
-}
-SUPPORTED_TTS_MODELS = {"kokoro"}
-MODEL_SIZES_BYTES = {
-    "base": 281 * 1024 * 1024,
-    "small": 922 * 1024 * 1024,
-    "medium": 1500 * 1024 * 1024,
-    "large": 3000 * 1024 * 1024,
-    "turbo": 1600 * 1024 * 1024,
-    "kokoro": 82 * 1024 * 1024,
-}
-
-active_downloads = set()
-download_errors = {}
-
-
-def check_model_downloaded(key: str) -> bool:
-    if key == "kokoro":
-        return (models_dir / "kokoro-en-v0_19" / "model.onnx").exists()
-    folder_name = MODEL_FOLDER_MAP.get(key)
-    if not folder_name:
-        return False
-    snapshots = models_dir / folder_name / "snapshots"
-    return snapshots.is_dir() and any(path.is_dir() for path in snapshots.iterdir())
-
-
-def _disk_progress(model_name: str) -> dict:
-    folder_name = MODEL_FOLDER_MAP[model_name]
-    path = models_dir / folder_name
-    total = MODEL_SIZES_BYTES[model_name]
-    downloaded = (
-        sum(file.stat().st_size for file in path.glob("**/*") if file.is_file())
-        if path.exists()
-        else 0
-    )
-    display_total = max(total, downloaded)
+@router.get("/models")
+def list_models():
+    """Return the full model registry merged with live runtime state."""
     return {
-        "downloaded": downloaded,
-        "total": display_total,
-        "percentage": min(99, int(downloaded / display_total * 100)) if display_total else 0,
-        "speed": 0.0,
+        "models": registry.get_all(),
+        "current_models_dir": str(config.models_dir),
     }
 
+
+# ── GET /models/{model_id}/download/status ────────────────────────────────────
+
+@router.get("/models/{model_id}/download/status")
+def get_download_status(model_id: str):
+    if model_id not in MODEL_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+    m = registry.get(model_id)
+    return {
+        "model_id":       model_id,
+        "state":          m["status"],
+        "progress":       m["progress"],
+        "bytes_downloaded": m["bytes_downloaded"],
+        "bytes_total":    m["bytes_total"],
+        "speed_bps":      m["speed_bps"],
+        "error":          m["error"],
+    }
+
+
+# ── POST /models/{model_id}/download ─────────────────────────────────────────
+
+@router.post("/models/{model_id}/download")
+def download_model(model_id: str):
+    if model_id not in MODEL_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+
+    if registry.is_downloaded(model_id):
+        return {"status": "completed", "message": f"{model_id} is already downloaded"}
+
+    if registry.is_downloading(model_id):
+        return {"status": "downloading", "message": f"{model_id} download already in progress"}
+
+    cancel_event = threading.Event()
+    registry.set_downloading(model_id, cancel_event)
+
+    t = threading.Thread(
+        target=_download_worker,
+        args=(model_id, cancel_event),
+        daemon=True,
+        name=f"dl-{model_id}",
+    )
+    t.start()
+    return {"status": "started", "message": f"Download started for {model_id}"}
+
+
+# ── POST /models/{model_id}/download/cancel ───────────────────────────────────
+
+@router.post("/models/{model_id}/download/cancel")
+def cancel_download(model_id: str):
+    if model_id not in MODEL_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+
+    cancelled = registry.cancel_download(model_id)
+    if cancelled:
+        return {"status": "cancelling", "message": f"Cancel signal sent for {model_id}"}
+    return {"status": "noop", "message": f"{model_id} is not currently downloading"}
+
+
+# ── POST /models/{model_id}/load ──────────────────────────────────────────────
+
+@router.post("/models/{model_id}/load")
+def load_model(model_id: str, payload: LoadPayload = LoadPayload()):
+    if model_id not in MODEL_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+
+    current = registry.get(model_id)
+
+    if current["status"] == STATUS_LOADED:
+        return {
+            "status":       "loaded",
+            "model_id":     model_id,
+            "compute_type": current["compute_type"],
+            "device":       current["device"],
+            "message":      f"{model_id} is already loaded",
+        }
+
+    if current["status"] not in (STATUS_DOWNLOADED,):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Model {model_id} is not downloaded. "
+                   f"POST /models/{model_id}/download first. "
+                   f"Current status: {current['status']}"
+        )
+
+    if not payload.keep_others:
+        loaded_id = registry.get_any_loaded_model_id()
+        if loaded_id and loaded_id != model_id:
+            logger.info("[models] Unloading %s before loading %s", loaded_id, model_id)
+            is_cuda_cur = registry.get(loaded_id).get("device") == "cuda"
+            mem_b = _cuda_mem() if is_cuda_cur else _mem_rss()
+            registry.set_unloaded(loaded_id)
+            gc.collect()
+            _free_cuda_cache()
+            mem_a = _cuda_mem() if is_cuda_cur else _mem_rss()
+            freed_prev = max(0, mem_b - mem_a) if mem_b else None
+            logger.info("[models] Freed ~%s bytes by unloading %s", freed_prev, loaded_id)
+
+    auto_device, auto_ct = _detect_device()
+    device       = payload.device or auto_device
+    compute_type = payload.compute_type or MODEL_REGISTRY[model_id]["default_compute_type"]
+    if device == "cuda" and auto_device == "cpu":
+        logger.warning("[models] CUDA requested for %s but not available; using CPU/int8", model_id)
+        device       = "cpu"
+        compute_type = "int8"
+
+    local_path = _snapshot_path(model_id)
+    if not local_path:
+        raise HTTPException(status_code=409, detail=f"Snapshot not found for {model_id}; re-download required")
+
+    is_cuda = device == "cuda"
+    mem_before = _cuda_mem() if is_cuda else _mem_rss()
+
+    meta = MODEL_REGISTRY[model_id]
+
+    try:
+        if meta.get("category") == "asr":
+            model_instance, used_ct, used_dev = _load_whisper(model_id, local_path, device, compute_type)
+            try:
+                from router.asr import asr_engine
+                asr_engine._model        = model_instance
+                asr_engine._current_size = model_id
+            except Exception:
+                pass
+        else:
+            # Voice / TTS model loading placeholder
+            model_instance = {"path": local_path, "type": "tts"}
+            used_ct = compute_type
+            used_dev = device
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load {model_id}: {exc}") from exc
+
+    mem_after = _cuda_mem() if is_cuda else _mem_rss()
+    mem_delta = max(0, mem_after - mem_before) if mem_before else None
+
+    registry.set_loaded(model_id, model_instance, used_ct, used_dev, mem_delta)
+
+    fallback_used = (used_ct != compute_type or used_dev != device)
+    return {
+        "status":         "loaded",
+        "model_id":       model_id,
+        "compute_type":   used_ct,
+        "device":         used_dev,
+        "fallback_used":  fallback_used,
+        "fallback_reason": f"OOM: fell back from {device}/{compute_type}" if fallback_used else None,
+        "mem_delta_bytes": mem_delta,
+    }
+
+
+# ── POST /models/{model_id}/unload ────────────────────────────────────────────
+
+@router.post("/models/{model_id}/unload")
+def unload_model(model_id: str):
+    if model_id not in MODEL_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+
+    current = registry.get(model_id)
+    if current["status"] != STATUS_LOADED:
+        return {
+            "status":    "noop",
+            "model_id":  model_id,
+            "message":   f"{model_id} is not currently loaded",
+            "freed_bytes": None,
+        }
+
+    is_cuda = current.get("device") == "cuda"
+    mem_before = _cuda_mem() if is_cuda else _mem_rss()
+
+    registry.set_unloaded(model_id)
+    try:
+        from router.asr import asr_engine
+        if asr_engine._current_size == model_id:
+            asr_engine._model        = None
+            asr_engine._current_size = None
+    except Exception:
+        pass
+
+    gc.collect()
+    _free_cuda_cache()
+
+    mem_after = _cuda_mem() if is_cuda else _mem_rss()
+    freed = max(0, mem_before - mem_after) if mem_before else None
+
+    return {
+        "status":      "unloaded",
+        "model_id":    model_id,
+        "freed_bytes": freed,
+    }
+
+
+# ── Legacy compat: GET /engines/models/status ────────────────────────────────
 
 @router.get("/engines/models/status")
-def get_models_status():
-    progress = {}
-    active_progress = progress_manager.get_progress()
-    for key in list(active_downloads):
-        model_name = key.split(":", 1)[-1]
-        if key in active_progress:
-            task = active_progress[key]
-            total = task["total"]
-            progress[key] = {
-                "downloaded": task["downloaded"],
-                "total": total,
-                "percentage": min(99, int(task["downloaded"] / total * 100)) if total else 5,
-                "speed": task["speed"],
-            }
-        elif model_name in MODEL_FOLDER_MAP:
-            progress[key] = _disk_progress(model_name)
-
+def legacy_models_status():
+    """
+    Backward-compatible endpoint used by older frontend code.
+    Returns the same data as GET /models in the legacy shape.
+    """
+    all_models = registry.get_all()
+    asr_status = {
+        m["model_id"]: m["status"] in (STATUS_DOWNLOADED, STATUS_LOADED)
+        for m in all_models if m["category"] == "asr"
+    }
+    tts_status = {
+        m["model_id"]: m["status"] in (STATUS_DOWNLOADED, STATUS_LOADED)
+        for m in all_models if m["category"] == "tts"
+    }
+    downloading = [m["model_id"] for m in all_models if m["status"] == STATUS_DOWNLOADING]
+    progress = {
+        m["model_id"]: {
+            "downloaded": m["bytes_downloaded"],
+            "total":      m["bytes_total"],
+            "percentage": int(m["progress"] * 100),
+            "speed":      m["speed_bps"],
+        }
+        for m in all_models
+        if m["status"] == STATUS_DOWNLOADING
+    }
+    errors = {
+        m["model_id"]: m["error"]
+        for m in all_models
+        if m["error"] and m["status"] == STATUS_NOT_DOWNLOADED
+    }
     return {
-        "asr": {name: check_model_downloaded(name) for name in ASR_REPO_MAP},
-        "tts": {name: check_model_downloaded(name) for name in SUPPORTED_TTS_MODELS},
-        "downloading": list(active_downloads),
-        "progress": progress,
-        "errors": download_errors,
-        "current_models_dir": str(models_dir),
+        "asr":                asr_status,
+        "tts":                tts_status,
+        "downloading":        downloading,
+        "progress":           progress,
+        "errors":             errors,
+        "current_models_dir": str(config.models_dir),
+        "models":             all_models,
     }
 
 
-@router.post("/engines/models/download")
-def download_model(payload: DownloadPayload):
-    if payload.model_type == "asr" and payload.model_name not in ASR_REPO_MAP:
-        raise HTTPException(status_code=400, detail="Unsupported ASR model")
-    if payload.model_type == "tts" and payload.model_name not in SUPPORTED_TTS_MODELS:
-        raise HTTPException(status_code=400, detail="This TTS model is not available")
-    if payload.model_type not in {"asr", "tts"}:
-        raise HTTPException(status_code=400, detail="Invalid model type")
-
-    key = f"{payload.model_type}:{payload.model_name}"
-    if key in active_downloads:
-        return {"status": "downloading", "message": "Model is already downloading"}
-
-    active_downloads.add(key)
-    download_errors.pop(key, None)
-
-    def run_download():
-        thread_local.active_model_key = key
-        try:
-            from huggingface_hub import snapshot_download
-
-            if payload.model_type == "asr":
-                snapshot_download(
-                    ASR_REPO_MAP[payload.model_name],
-                    cache_dir=str(models_dir),
-                    allow_patterns=[
-                        "config.json",
-                        "preprocessor_config.json",
-                        "model.bin",
-                        "tokenizer.json",
-                        "vocabulary.*",
-                    ],
-                    tqdm_class=PatchedTqdm,
-                    local_files_only=False,
-                )
-            else:
-                snapshot_download(
-                    repo_id="csukuangfj/kokoro-en-v0_19",
-                    local_dir=str(models_dir / "kokoro-en-v0_19"),
-                    allow_patterns=["*.onnx", "*.txt", "espeak-ng-data/*"],
-                    tqdm_class=PatchedTqdm,
-                )
-        except Exception as exc:
-            download_errors[key] = str(exc)
-        finally:
-            progress_manager.complete_task(key)
-            active_downloads.discard(key)
-            thread_local.__dict__.pop("active_model_key", None)
-
-    threading.Thread(target=run_download, daemon=True).start()
-    return {"status": "started", "message": f"Model {payload.model_name} download started"}
-
-
-@router.post("/engines/models/delete")
-def delete_model(payload: DownloadPayload):
-    if payload.model_type == "asr":
-        valid_model = payload.model_name in ASR_REPO_MAP
-    elif payload.model_type == "tts":
-        valid_model = payload.model_name in SUPPORTED_TTS_MODELS
-    else:
-        valid_model = False
-    if not valid_model:
-        raise HTTPException(status_code=400, detail="Invalid model name")
-
-    path = models_dir / MODEL_FOLDER_MAP[payload.model_name]
-    if not path.exists():
-        return {"status": "success", "message": "Model folder does not exist"}
-    try:
-        import shutil
-        shutil.rmtree(path)
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to remove model: {exc}") from exc
-    return {"status": "success", "message": f"Model {payload.model_name} removed successfully"}
-
+# ── Legacy: POST /settings/models-dir ────────────────────────────────────────
 
 @router.post("/settings/models-dir")
 def change_models_dir(payload: SettingsPayload):
     try:
-        update_models_dir(payload.models_dir)
-        return {"status": "success", "models_dir": str(models_dir)}
+        config.update_models_dir(payload.models_dir)
+        return {"status": "success", "models_dir": str(config.models_dir)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

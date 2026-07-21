@@ -14,6 +14,7 @@
   <meta property="og:description"
     content="Transcribe audio locally on Windows with ONNX Whisper. No cloud, no subscriptions. 100% Free &amp; Offline.">
   <meta property="og:type" content="website">
+  <link rel="icon" href="cincoscribe.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -101,15 +102,15 @@
       --clr-primary-text: oklch(0.10 0 0);
 
       /* Backgrounds */
-      --clr-bg: oklch(0.98 0 0);
-      --clr-bg-subtle: oklch(0.96 0 0);
-      --clr-bg-muted: oklch(0.94 0 0);
-      --clr-bg-code: oklch(0.96 0 0);
+      --clr-bg: oklch(0.97 0.028 207.8);
+      --clr-bg-subtle: oklch(0.94 0.032 207.8);
+      --clr-bg-muted: oklch(0.92 0.035 207.8);
+      --clr-bg-code: oklch(0.94 0.032 207.8);
 
       /* Surfaces */
-      --clr-card: oklch(1 0 0);
-      --clr-surface-raised: oklch(0.99 0 0);
-      --clr-white: oklch(1 0 0);
+      --clr-card: oklch(0.97 0.028 207.8);
+      --clr-surface-raised: oklch(0.985 0.02 207.8);
+      --clr-white: oklch(0.97 0.028 207.8);
 
       /* Text */
       --clr-text: oklch(0.15 0 0);
@@ -1362,7 +1363,9 @@
   <header class="header" id="top">
     <div class="header-inner">
       <a href="#top" class="logo">
-        <div class="logo-icon">C</div>
+        <div class="logo-icon" style="background: transparent; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+          <img src="cincoscribe.svg" alt="CincoScribe" style="width: 100%; height: 100%; object-fit: contain;">
+        </div>
         CincoScribe
       </a>
       <nav class="header-nav" id="header-nav">

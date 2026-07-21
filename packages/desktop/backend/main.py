@@ -39,6 +39,11 @@ logger.info("Importing backend config...")
 from config import models_dir
 logger.info(f"Model download path set to: {models_dir}")
 
+# Scan disk before routers import so GET /models shows correct state immediately
+from model_registry import registry as _model_registry
+_model_registry.scan_disk(models_dir)
+logger.info("Model registry disk scan complete")
+
 logger.info("Importing routers and engine dependencies...")
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,6 +64,7 @@ except ImportError:
 
 logger.info(f"Model cache: {models_dir}")
 logger.info("Ready")
+
 
 app = FastAPI(title="CincoScribe Sidecar", version="0.1.0", docs_url=None, redoc_url=None)
 
