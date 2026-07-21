@@ -1,13 +1,15 @@
 /* ===== Transcribe Page — Real Whisper Transcription ===== */
 
 function renderTranscribePage(container) {
-  const whisper = window.WhisperTranscriber;
   let selectedFile = null;
   let fileDuration = 0;
-  // 'fast' = Whisper Tiny, 'accuracy' = Whisper Base
   const WASM_MODELS = [
-    { id: 'fast',     name: 'Whisper Tiny (Fast)' },
-    { id: 'accuracy', name: 'Whisper Base (Accurate)' },
+    { id: 'fast',     name: 'Whisper Tiny' },
+    { id: 'accuracy', name: 'Whisper Base' },
+    { id: 'small',    name: 'Whisper Small' },
+    { id: 'medium',   name: 'Whisper Medium' },
+    { id: 'large-v3', name: 'Whisper Large v3' },
+    { id: 'turbo',    name: 'Whisper Turbo' },
   ];
 
   let modelMode = localStorage.getItem('whisperMode') || 'accuracy'; // whisper mode key
@@ -19,6 +21,17 @@ function renderTranscribePage(container) {
   let transcript = null;
   let liveTranscript = [];
   let activeTranscriptTab = 'plain'; // 'timestamps' | 'plain'
+
+  async function getSidecarBaseUrl() {
+    let port = 3901;
+    if (window.electronAPI && window.electronAPI.getSidecarPort) {
+      try { port = await window.electronAPI.getSidecarPort(); } catch (e) {}
+    }
+    const hostname = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+      ? '127.0.0.1'
+      : (window.location.hostname || '127.0.0.1');
+    return `http://${hostname}:${port}`;
+  }
 
   function render() {
     container.innerHTML = `
@@ -430,43 +443,110 @@ function renderTranscribePage(container) {
 
     try {
       const apiKey = AppState.openAiKey;
-      
-      // Ensure WASM model is loaded if doing local transcription
-      if (!apiKey) {
-        if (!whisper) {
-          throw new Error('Whisper service is not loaded on this page.');
+      const whisperService = window.WhisperTranscriber;
+      const modelSizeKey = modelMode === 'fast' ? 'tiny' : (modelMode === 'accuracy' ? 'base' : modelMode);
+      let result = null;
+
+      // 1. Try local Python sidecar ASR backend if active and in Electron desktop mode
+      let sidecarAvailable = false;
+      let baseUrl = '';
+      try {
+        baseUrl = await getSidecarBaseUrl();
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 1500);
+        const hc = await fetch(`${baseUrl}/health`, { signal: controller.signal });
+        clearTimeout(tid);
+        if (hc.ok) sidecarAvailable = true;
+      } catch (e) {}
+
+      if (sidecarAvailable && !apiKey) {
+        updateProgress('Transcribing via local Whisper sidecar...', 40);
+        let token = '';
+        if (window.electronAPI && window.electronAPI.getSidecarToken) {
+          try { token = await window.electronAPI.getSidecarToken(); } catch (e) {}
         }
-        
-        const mode = modelMode; // 'fast' or 'accuracy'
-        const targetModel = whisper.models[mode] || whisper.models.accuracy;
-        
-        if (!whisper.isReady || whisper.currentLoadedModel !== targetModel) {
-          const modelLabel = mode === 'fast' ? 'Tiny' : 'Base';
-          updateProgress('Downloading Whisper ' + modelLabel + ' model... First time only.', 0);
-          
-          await whisper.loadModel(mode, (data) => {
-            if (data.status === 'progress') {
-              updateProgress(
-                'Downloading model: ' + data.file.split('/').pop() + '...',
-                Math.round(data.progress * 0.4)
-              );
-            } else if (data.status === 'ready') {
-              updateProgress('Model loaded! Starting transcription...', 50);
-            }
+
+        const headers = token ? { 'X-Sidecar-Token': token } : {};
+        let response = null;
+        const filePath = selectedFile.path || (window.electronAPI && window.electronAPI.webUtils && window.electronAPI.webUtils.getPathForFile ? window.electronAPI.webUtils.getPathForFile(selectedFile) : null);
+
+        if (filePath) {
+          response = await fetch(`${baseUrl}/transcribe`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...headers
+            },
+            body: JSON.stringify({
+              audio_path: filePath,
+              language: language === 'auto' ? 'auto' : language,
+              model_size: modelSizeKey
+            })
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('file', selectedFile, selectedFile.name);
+          formData.append('language', language === 'auto' ? 'auto' : language);
+          formData.append('model_size', modelSizeKey);
+
+          response = await fetch(`${baseUrl}/transcribe/upload`, {
+            method: 'POST',
+            headers: headers,
+            body: formData
           });
         }
-        
-        if (!whisper.isReady) {
-          throw new Error('Model failed to load. Please refresh the page and try again.');
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || 'Sidecar transcription failed');
         }
+
+        const data = await response.json();
+        const chunks = (data.segments || []).map(seg => ({
+          timestamp: [seg.start || 0, seg.end || 0],
+          text: (seg.text || '').trim()
+        }));
+        result = {
+          text: data.text || chunks.map(c => c.text).join(' '),
+          chunks: chunks
+        };
+      } else {
+        // 2. Fallback to OpenAI API or WASM Whisper Transcriber
+        if (!apiKey) {
+          if (!whisperService) {
+            throw new Error('Whisper service is not loaded on this page.');
+          }
+          
+          const mode = modelMode; // 'fast' or 'accuracy'
+          const targetModel = whisperService.models[mode] || whisperService.models.accuracy;
+          
+          if (!whisperService.isReady || whisperService.currentLoadedModel !== targetModel) {
+            const modelLabel = mode === 'fast' ? 'Tiny' : 'Base';
+            updateProgress('Downloading Whisper ' + modelLabel + ' model... First time only.', 0);
+            
+            await whisperService.loadModel(mode, (data) => {
+              if (data.status === 'progress') {
+                updateProgress(
+                  'Downloading model: ' + data.file.split('/').pop() + '...',
+                  Math.round(data.progress * 0.4)
+                );
+              } else if (data.status === 'ready') {
+                updateProgress('Model loaded! Starting transcription...', 50);
+              }
+            });
+          }
+          
+          if (!whisperService.isReady) {
+            throw new Error('Model failed to load. Please refresh the page and try again.');
+          }
+        }
+
+        updateProgress('Transcribing audio segments...', 60);
+
+        result = await (whisperService || window.WhisperTranscriber).transcribe(selectedFile, language, modelMode, (liveData) => {
+          updateProgress(null, null, liveData);
+        });
       }
-
-      updateProgress('Transcribing audio segments...', 60);
-
-      // Call API
-      const result = await whisper.transcribe(selectedFile, language, (liveData) => {
-        updateProgress(null, null, liveData);
-      });
 
       progressPct = 100;
       statusMessage = 'Transcription complete!';

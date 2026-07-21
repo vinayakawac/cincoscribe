@@ -8,18 +8,22 @@ from engines.base_asr import ASRBackend, EngineError
 logger = logging.getLogger(__name__)
 
 ASR_REPOSITORIES = {
+    "tiny": "Systran/faster-whisper-tiny",
     "base": "Systran/faster-whisper-base",
     "small": "Systran/faster-whisper-small",
     "medium": "Systran/faster-whisper-medium",
     "large": "Systran/faster-whisper-large-v3",
+    "large-v3": "Systran/faster-whisper-large-v3",
     "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
 }
 
 MODEL_FOLDERS = {
+    "tiny": "models--Systran--faster-whisper-tiny",
     "base": "models--Systran--faster-whisper-base",
     "small": "models--Systran--faster-whisper-small",
     "medium": "models--Systran--faster-whisper-medium",
     "large": "models--Systran--faster-whisper-large-v3",
+    "large-v3": "models--Systran--faster-whisper-large-v3",
     "turbo": "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo",
 }
 

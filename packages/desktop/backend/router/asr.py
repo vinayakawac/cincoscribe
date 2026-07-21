@@ -1,7 +1,8 @@
 import asyncio
 import os
+import tempfile
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from config import models_dir
@@ -63,3 +64,35 @@ async def asr_transcribe(payload: ASRPayload):
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"ASR failed: {exc}") from exc
+
+
+@router.post("/transcribe/upload")
+async def asr_transcribe_upload(
+    file: UploadFile = File(...),
+    language: str = Form("auto"),
+    model_size: str = Form("base"),
+):
+    suffix = os.path.splitext(file.filename or "")[1] or ".wav"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        return await asyncio.to_thread(
+            asr_engine.transcribe,
+            tmp_path,
+            language,
+            model_size,
+        )
+    except EngineError as exc:
+        status_code = 400 if "not downloaded" in str(exc) else 500
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"ASR failed: {exc}") from exc
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
