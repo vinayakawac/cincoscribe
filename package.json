@@ -14,5 +14,9 @@
     "build:web": "npm run build --workspace=packages/web",
     "build:ui": "npm run build --workspace=packages/ui"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vinayakawac/CincoScribe.git"
+  },
   "license": "MIT"
 }

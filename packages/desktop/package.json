@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder --publish never"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vinayakawac/CincoScribe.git"
   },
   "dependencies": {
     "@cincoscribe/core": "*",
@@ -23,6 +27,11 @@
   "build": {
     "appId": "com.cincoscribe.desktop",
     "productName": "CincoScribe",
+    "publish": {
+      "provider": "github",
+      "owner": "vinayakawac",
+      "repo": "CincoScribe"
+    },
     "win": {
       "target": "nsis"
     },
