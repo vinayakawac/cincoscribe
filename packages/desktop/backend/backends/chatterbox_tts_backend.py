@@ -1,5 +1,5 @@
 """
-backends/cincoscribe_tts_backend.py — ResembleAI Chatterbox zero-shot voice cloning backend for CincoScribe.
+backends/chatterbox_tts_backend.py — ResembleAI Chatterbox zero-shot voice cloning backend.
 """
 
 import asyncio
@@ -80,7 +80,6 @@ def is_model_cached(repo_id: str, required_files: List[str]) -> bool:
     cache_dir = config.models_dir
     if not cache_dir.exists():
         return False
-    # Check repo snapshot directory or direct files
     for fname in required_files:
         matches = list(cache_dir.glob(f"**/{fname}"))
         if not matches:
@@ -152,7 +151,7 @@ async def _combine_voice_prompts(
     return voice_prompt, False
 
 
-class CincoScribeTTSBackend:
+class ChatterboxTTSBackend:
     """Chatterbox zero-shot voice cloning backend for CincoScribe."""
 
     def __init__(self):
@@ -203,10 +202,11 @@ class CincoScribeTTSBackend:
                 from chatterbox.tts import ChatterboxTTS
                 self.model = ChatterboxTTS.from_local(local_path, device=device)
             except (ImportError, AttributeError):
-                # Fallback wrapper if chatterbox library API exposes class directly
                 import chatterbox
                 if hasattr(chatterbox, "ChatterboxTTS"):
                     self.model = chatterbox.ChatterboxTTS.from_local(local_path, device=device)
+                elif hasattr(chatterbox, "ChatterboxMultilingualTTS"):
+                    self.model = chatterbox.ChatterboxMultilingualTTS.from_pretrained(device=device)
                 else:
                     raise RuntimeError("Chatterbox library (ResembleAI/chatterbox) is required for zero-shot voice cloning.")
 
@@ -228,9 +228,7 @@ class CincoScribeTTSBackend:
         reference_text: str,
         use_cache: bool = True,
     ) -> Tuple[Dict[str, Any], bool]:
-        """
-        Chatterbox processes reference audio at generation time, not prompt-creation time.
-        """
+        """Chatterbox processes reference audio at generation time."""
         if use_cache:
             cache_key = get_cache_key(audio_path, reference_text)
             cached = get_cached_voice_prompt(cache_key)
@@ -260,15 +258,23 @@ class CincoScribeTTSBackend:
     def _assert_loaded(self) -> None:
         try:
             from model_registry import registry, STATUS_LOADED
-            st = registry.get("chatterbox")
-            if st.get("status") != STATUS_LOADED:
-                raise RuntimeError("Model not loaded. Call POST /models/chatterbox/load first.")
+            st = None
+            for key in ("chatterbox_tts", "chatterbox", "chatterbox_turbo"):
+                try:
+                    s = registry.get(key)
+                    if s.get("status") == STATUS_LOADED:
+                        st = s
+                        break
+                except KeyError:
+                    continue
+            if not st or st.get("status") != STATUS_LOADED:
+                raise RuntimeError("Model not loaded. Call POST /models/chatterbox_tts/load first.")
             if self.model is None and st.get("instance") is not None:
                 self.model = st["instance"]
                 self._device = st.get("device")
         except KeyError:
             if self.model is None:
-                raise RuntimeError("Model not loaded. Call POST /models/chatterbox/load first.")
+                raise RuntimeError("Model not loaded. Call POST /models/chatterbox_tts/load first.")
 
     async def generate(
         self,
@@ -281,10 +287,20 @@ class CincoScribeTTSBackend:
         """Synthesize speech using Chatterbox zero-shot voice cloning."""
         self._assert_loaded()
 
-        ref_audio = voice_prompt.get("ref_audio") if isinstance(voice_prompt, dict) else None
-        if ref_audio and not Path(ref_audio).exists():
-            logger.warning("Reference audio not found: %s — generating without clone", ref_audio)
-            ref_audio = None
+        ref_audio = None
+        if isinstance(voice_prompt, dict):
+            ref_audio = voice_prompt.get("ref_audio") or voice_prompt.get("audio_path")
+
+        logger.info(
+            "generate() called — ref_audio=%s exists=%s",
+            ref_audio,
+            Path(ref_audio).exists() if ref_audio else False,
+        )
+
+        if not ref_audio:
+            raise RuntimeError("voice_prompt missing ref_audio — voice sample path not set")
+        if not Path(ref_audio).exists():
+            raise RuntimeError(f"Reference audio not found at {ref_audio}. Re-upload the voice sample.")
 
         def _generate_sync() -> Tuple[np.ndarray, int]:
             import torch
@@ -292,16 +308,14 @@ class CincoScribeTTSBackend:
             if seed is not None:
                 manual_seed(seed, self._device)
 
-            if ref_audio:
-                wav = self.model.generate(
-                    text,
-                    audio_prompt_path=ref_audio,
-                    exaggeration=0.5,  # clone fidelity vs stability balance
-                    cfg_weight=0.5,    # classifier-free guidance weight
-                )
-            else:
-                # No reference — generate with default voice
-                wav = self.model.generate(text)
+            assert ref_audio is not None
+
+            wav = self.model.generate(
+                text,
+                audio_prompt_path=ref_audio,
+                exaggeration=0.5,
+                cfg_weight=0.5,
+            )
 
             if isinstance(wav, torch.Tensor):
                 audio = wav.squeeze().cpu().numpy().astype(np.float32)
@@ -312,3 +326,7 @@ class CincoScribeTTSBackend:
             return audio, sample_rate
 
         return await asyncio.to_thread(_generate_sync)
+
+
+# Alias for backward compatibility
+CincoScribeTTSBackend = ChatterboxTTSBackend

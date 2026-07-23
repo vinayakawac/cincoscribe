@@ -1,71 +1,114 @@
-# CincoScribe Monorepo
+<p align="center">
+  <img src="./cincoscribe.svg" width="120" height="120" alt="CincoScribe Logo" />
+</p>
 
-CincoScribe is a free, open-source transcription and TTS application. This repository is a monorepo containing the desktop app, web app, and shared packages.
+<h1 align="center">CincoScribe</h1>
+
+<p align="center">
+  Free, Local-First Audio Transcription &amp; Speech Synthesis Application
+</p>
 
 ---
 
-## Repository Contents
+> [!NOTE]
+> **Development Notice**: The **Manage Voices (Custom Voices)** feature is currently under active development and will be released in an upcoming version.
+
+---
+
+## Overview
+
+CincoScribe is a privacy-first, desktop and web application designed for fast, accurate audio transcription and speech synthesis. It operates locally with no external tracking or remote license dependencies.
+
+---
+
+## Key Features
+
+- **Audio Transcription**: Multi-language transcription powered by local WebAssembly Whisper models with timestamp support.
+- **Speech Synthesis (TTS)**: Offline text-to-speech generation with model switching.
+- **Audio Concatenation**: Multi-track audio merging tool for joining audio segments.
+- **Privacy First**: 100% local execution with no tracking or remote telemetry.
+- **Theme Options**: Built-in support for dark and light appearance modes.
+
+---
+
+## Monorepo Architecture
 
 ```
 ├── packages/
-│   ├── core/             # Core transcription logic
-│   ├── desktop/          # Electron desktop application
-│   ├── ui/               # Shared UI components
-│   └── web/              # Next.js web application frontend
-├── package.json          # Monorepo configuration
-├── AUDIT.md              # npm audit justification
-├── LICENSE
-└── README.md
+│   ├── core/             # Core transcription and utility logic
+│   ├── desktop/          # Electron desktop application and FastAPI Python sidecar
+│   ├── ui/               # Shared UI component library
+│   └── web/              # Next.js web frontend application
+├── js/                   # Core SPA page controllers and routing logic
+├── css/                  # Application stylesheets and design system
+├── index.html            # Primary application UI container
+├── package.json          # Root monorepo workspace configuration
+├── LICENSE               # MIT License
+└── README.md             # Project documentation
 ```
 
 ---
 
 ## Prerequisites
 
-- Node.js 18+
-- npm
+- **Node.js**: Version 18.0 or higher
+- **npm**: Version 9.0 or higher
+- **Python**: Version 3.10+ (managed via `uv` or system Python `py`)
 
 ---
 
-## Install Dependencies
+## Installation
+
+Clone the repository and install all dependencies:
 
 ```bash
+git clone https://github.com/vinayakawac/CincoScribe.git
+cd CincoScribe
 npm install
 ```
 
 ---
 
-## Run in Development
+## Development Workflows
 
-**Desktop App:**
+### Desktop Application (Electron + FastAPI Sidecar)
+
 ```bash
 npm run dev:desktop
 ```
-Launches the Electron window.
 
-**Web App:**
+Launches the Electron application alongside the Python sidecar backend.
+
+### Web Application
+
 ```bash
 npm run dev:web
 ```
-Runs the Next.js dev server on port 3000.
+
+Launches the web application development server.
 
 ---
 
-## Build
+## Production Build Instructions
 
-**Desktop Installer (Windows):**
+### Windows Desktop Installer
+
 ```bash
 npm run build:desktop
 ```
-Produces an NSIS installer in `packages/desktop/dist/`. Configuration is in `packages/desktop/electron-builder.yml`.
 
-**Web App:**
+Generates the NSIS installer inside `packages/desktop/dist/`.
+
+### Web Application Bundle
+
 ```bash
 npm run build:web
 ```
+
+Generates the production web application build inside `packages/web/.next/`.
 
 ---
 
 ## License
 
-See [LICENSE](./LICENSE).
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.

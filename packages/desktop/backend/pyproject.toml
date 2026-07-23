@@ -16,6 +16,7 @@ dependencies = [
     "onnxruntime>=1.24.3",
     "psutil>=5.9.0",
     "sqlalchemy>=2.0.0",
+    "chatterbox-tts>=0.1.7",
 ]
 
 [dependency-groups]

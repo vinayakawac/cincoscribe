@@ -374,8 +374,14 @@ def create_voice_prompt_for_voice(
     if len(samples) == 1:
         s = samples[0]
         full_path = config.resolve_storage_path(s["audio_path"])
+        if full_path is None or not full_path.exists():
+            raise ValueError(
+                f"Sample audio file missing for voice {target_id}. "
+                f"Stored path: {s['audio_path']}"
+            )
         return {
-            "audio_path": str(full_path) if full_path else "",
+            "ref_audio": str(full_path),
+            "audio_path": str(full_path),
             "reference_text": s["reference_text"],
         }
 
@@ -388,6 +394,7 @@ def create_voice_prompt_for_voice(
 
     if use_cache and cache_path.exists():
         return {
+            "ref_audio": str(cache_path),
             "audio_path": str(cache_path),
             "reference_text": combined_text,
         }
