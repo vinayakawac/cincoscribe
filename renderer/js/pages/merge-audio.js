@@ -235,9 +235,9 @@ function renderMergeAudioPage(container) {
           width: 100%;
           box-sizing: border-box;
           padding: 9px 34px 9px 14px;
-          background: var(--clr-surface-raised, #262626) !important;
-          border: 1px solid var(--clr-border, rgba(255,255,255,0.12)) !important;
-          color: var(--clr-text, #ffffff) !important;
+          background: var(--clr-surface-raised) !important;
+          border: 1px solid var(--clr-border) !important;
+          color: var(--clr-text) !important;
           border-radius: var(--radius-md, 8px) !important;
           font-size: 13px !important;
           font-weight: 500 !important;
@@ -245,19 +245,19 @@ function renderMergeAudioPage(container) {
           outline: none !important;
           cursor: pointer !important;
           transition: all 150ms ease !important;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.1) !important;
         }
         .select-input-styled:hover {
-          background: var(--clr-bg-muted, #303030) !important;
-          border-color: var(--clr-border-hover, rgba(255,255,255,0.24)) !important;
+          background: var(--clr-bg-muted) !important;
+          border-color: var(--clr-border-hover) !important;
         }
         .select-input-styled:focus {
-          border-color: var(--clr-primary, #f59e0b) !important;
-          box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25) !important;
+          border-color: var(--clr-primary) !important;
+          box-shadow: 0 0 0 2px var(--clr-focus-ring) !important;
         }
         .select-input-styled option {
-          background: #1d1d1d !important;
-          color: #ffffff !important;
+          background: var(--clr-card) !important;
+          color: var(--clr-text) !important;
           padding: 10px !important;
           font-size: 13px !important;
         }
@@ -298,7 +298,7 @@ function renderMergeAudioPage(container) {
 
           <!-- Sidebar Options & Action Panel -->
           <div class="summary-card">
-            <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--clr-text); border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 10px;">
+            <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--clr-text); border-bottom: 1px solid var(--clr-border); padding-bottom: 10px;">
               Merge Configuration
             </h4>
 
@@ -341,7 +341,7 @@ function renderMergeAudioPage(container) {
               id="btn-merge"
               class="btn btn-primary"
               ${files.length < 2 || isMerging ? 'disabled' : ''}
-              style="width: 100%; padding: 11px; font-size: 13px; font-weight: 700; margin-top: 8px; color: oklch(0.10 0.01 255) !important;"
+              style="width: 100%; padding: 11px; font-size: 13px; font-weight: 700; margin-top: 8px;"
             >
               ${isMerging ? 'Stitching Audio Tracks...' : 'Merge Audio Tracks'}
             </button>
@@ -363,7 +363,7 @@ function renderMergeAudioPage(container) {
             </span>
             <span style="font-size: 10px; color: var(--clr-text-muted);">• Drag items to reorder</span>
           </div>
-          <button id="btn-clear-all" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; color: #ef4444; border-color: rgba(239,68,68,0.3);">
+          <button id="btn-clear-all" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; color: var(--clr-error); border-color: var(--clr-border);">
             Clear All
           </button>
         </div>
@@ -403,7 +403,7 @@ function renderMergeAudioPage(container) {
                 <button class="merge-control-btn" data-move-down="${i}" title="Move track down" ${i === files.length - 1 ? 'disabled' : ''}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
-                <button class="merge-control-btn" data-remove="${i}" title="Remove track" style="color: #ef4444;">
+                <button class="merge-control-btn" data-remove="${i}" title="Remove track" style="color: var(--clr-error);">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                 </button>
               </div>
@@ -423,7 +423,7 @@ function renderMergeAudioPage(container) {
             <h4 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--clr-text);">Master Merged Track Ready</h4>
           </div>
           <div style="display: flex; gap: 8px;">
-            <button id="btn-download-merged" class="btn btn-primary" style="font-size: 12px; padding: 6px 14px; color: oklch(0.10 0.01 255) !important;">
+            <button id="btn-download-merged" class="btn btn-primary" style="font-size: 12px; padding: 6px 14px;">
               Download WAV
             </button>
             <button id="btn-transcribe-merged" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;">

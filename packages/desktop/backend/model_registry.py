@@ -7,7 +7,6 @@ State is NOT persisted; rebuilt from disk on sidecar restart.
 
 from __future__ import annotations
 
-import gc
 import logging
 import os
 import threading
@@ -105,8 +104,8 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
     "qwen_1_7b": {
         "category": "tts",
-        "repo_id": "Qwen/Qwen2-Audio-7B-Instruct",
-        "folder": "models--Qwen--Qwen2-Audio-7B-Instruct",
+        "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+        "folder": "models--Qwen--Qwen3-TTS-12Hz-1.7B-Base",
         "size_bytes": 3400 * 1024 * 1024,
         "size_label": "~3.4 GB",
         "default_compute_type": "float16",
@@ -115,33 +114,13 @@ MODEL_REGISTRY: dict[str, dict] = {
     },
     "qwen_0_6b": {
         "category": "tts",
-        "repo_id": "Qwen/Qwen2-0.5B-Instruct",
-        "folder": "models--Qwen--Qwen2-0.5B-Instruct",
+        "repo_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+        "folder": "models--Qwen--Qwen3-TTS-12Hz-0.6B-Base",
         "size_bytes": 1200 * 1024 * 1024,
         "size_label": "~1.2 GB",
         "default_compute_type": "int8",
         "min_vram_mb": 2048,
         "description": "Balanced quality and performance version of Qwen TTS.",
-    },
-    "qwen_custom_1_7b": {
-        "category": "tts",
-        "repo_id": "Qwen/Qwen2-Audio-7B",
-        "folder": "models--Qwen--Qwen2-Audio-7B",
-        "size_bytes": 3400 * 1024 * 1024,
-        "size_label": "~3.4 GB",
-        "default_compute_type": "float16",
-        "min_vram_mb": 4096,
-        "description": "Personalized voice cloning model based on Qwen.",
-    },
-    "qwen_custom_0_6b": {
-        "category": "tts",
-        "repo_id": "Qwen/Qwen2-0.5B",
-        "folder": "models--Qwen--Qwen2-0.5B",
-        "size_bytes": 1200 * 1024 * 1024,
-        "size_label": "~1.2 GB",
-        "default_compute_type": "int8",
-        "min_vram_mb": 2048,
-        "description": "Lightweight personal voice cloning model.",
     },
     "luxtts": {
         "category": "tts",
@@ -182,26 +161,6 @@ MODEL_REGISTRY: dict[str, dict] = {
         "default_compute_type": "int8",
         "min_vram_mb": 512,
         "description": "High speed English generation with support for emotional tags.",
-    },
-    "tada_1b": {
-        "category": "tts",
-        "repo_id": "TADA/TADA-1B",
-        "folder": "models--TADA--TADA-1B",
-        "size_bytes": 2000 * 1024 * 1024,
-        "size_label": "~2.0 GB",
-        "default_compute_type": "float16",
-        "min_vram_mb": 2048,
-        "description": "Advanced text-to-speech model optimized for expressive speech.",
-    },
-    "tada_3b": {
-        "category": "tts",
-        "repo_id": "TADA/TADA-3B",
-        "folder": "models--TADA--TADA-3B",
-        "size_bytes": 6000 * 1024 * 1024,
-        "size_label": "~6.0 GB",
-        "default_compute_type": "float16",
-        "min_vram_mb": 6144,
-        "description": "Large scale multilingual speech synthesis.",
     },
 }
 

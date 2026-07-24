@@ -82,6 +82,14 @@ class QwenCustomVoiceBackend:
     async def load_model_async(self, model_size: Optional[str] = None) -> None:
         if model_size is None:
             model_size = self.model_size
+        else:
+            ms_lower = str(model_size).lower()
+            if "0_6b" in ms_lower or "0.6b" in ms_lower or "0_6" in ms_lower:
+                model_size = "0.6B"
+            elif "1_7b" in ms_lower or "1.7b" in ms_lower or "1_7" in ms_lower:
+                model_size = "1.7B"
+            elif model_size not in QWEN_CV_HF_REPOS:
+                model_size = self.model_size
 
         if self.model is not None and self._current_model_size == model_size:
             return
@@ -99,7 +107,13 @@ class QwenCustomVoiceBackend:
         is_cached = self._is_model_cached(model_size)
 
         with model_load_progress(model_name, is_cached):
-            from qwen_tts import Qwen3TTSModel
+            try:
+                from qwen_tts import Qwen3TTSModel
+            except ImportError as err:
+                raise RuntimeError(
+                    "qwen-tts package is not installed in the backend environment. "
+                    "Run 'pip install qwen-tts' to load Qwen TTS models."
+                ) from err
 
             model_path = self._get_model_path(model_size)
             logger.info("Loading Qwen CustomVoice %s on %s...", model_size, self.device)

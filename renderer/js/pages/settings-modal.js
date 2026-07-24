@@ -497,11 +497,11 @@ async function renderSettingsPage(container) {
                   class="server-input-field"
                 />
                 ${isServerOnline ? `
-                  <button id="btn-restart-server" class="btn btn-secondary server-btn-action" title="Restart Server" style="border: 1px solid var(--clr-border); color: var(--clr-text, #ffffff) !important; background: var(--clr-surface-raised, #262626) !important;" aria-label="Restart Server">
+                  <button id="btn-restart-server" class="btn btn-secondary server-btn-action" title="Restart Server" style="border: 1px solid var(--clr-border);" aria-label="Restart Server">
                     Restart Server
                   </button>
                 ` : `
-                  <button id="btn-start-server" class="btn btn-primary server-btn-action" title="Start Server" style="color: oklch(0.10 0.01 255) !important;" aria-label="Start Server">
+                  <button id="btn-start-server" class="btn btn-primary server-btn-action" title="Start Server" aria-label="Start Server">
                     Start Server
                   </button>
                 `}

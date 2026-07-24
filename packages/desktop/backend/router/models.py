@@ -15,6 +15,7 @@ Endpoint surface:
 from __future__ import annotations
 
 import gc
+import inspect
 import logging
 import shutil
 import threading
@@ -28,7 +29,6 @@ from pydantic import BaseModel
 import config
 from model_registry import (
     MODEL_REGISTRY,
-    WHISPER_REGISTRY,
     STATUS_DOWNLOADED,
     STATUS_DOWNLOADING,
     STATUS_LOADED,
@@ -201,6 +201,7 @@ def _download_worker(model_id: str, cancel_event: threading.Event) -> None:
             repo_id=repo_id,
             allow_patterns=meta.get("allow_patterns"),
             local_files_only=False,
+            max_workers=2,
         )
 
         if meta.get("local_dir"):
@@ -419,7 +420,7 @@ def cancel_download(model_id: str):
 # ── POST /models/{model_id}/load ──────────────────────────────────────────────
 
 @router.post("/models/{model_id}/load")
-def load_model(model_id: str, payload: LoadPayload = LoadPayload()):
+async def load_model(model_id: str, payload: LoadPayload = LoadPayload()):
     if model_id not in MODEL_REGISTRY:
         raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
 
@@ -480,8 +481,22 @@ def load_model(model_id: str, payload: LoadPayload = LoadPayload()):
             except Exception:
                 pass
         else:
-            # Voice / TTS model loading placeholder
-            model_instance = {"path": local_path, "type": "tts"}
+            from backends import get_tts_backend_for_engine
+            backend = get_tts_backend_for_engine(model_id)
+            if hasattr(backend, "load_model"):
+                load_fn = backend.load_model
+                is_async = inspect.iscoroutinefunction(load_fn)
+                try:
+                    if is_async:
+                        await load_fn(model_id)
+                    else:
+                        load_fn(model_id)
+                except TypeError:
+                    if is_async:
+                        await load_fn()
+                    else:
+                        load_fn()
+            model_instance = backend
             used_ct = compute_type
             used_dev = device
     except Exception as exc:

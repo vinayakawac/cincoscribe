@@ -193,11 +193,9 @@ _llm_backends_lock = threading.Lock()
 # Supported TTS engines
 TTS_ENGINES = {
     "qwen": "Qwen TTS",
-    "qwen_custom_voice": "Qwen CustomVoice",
     "luxtts": "LuxTTS",
     "chatterbox": "Chatterbox TTS",
     "chatterbox_turbo": "Chatterbox Turbo",
-    "tada": "TADA",
     "kokoro": "Kokoro",
 }
 
@@ -240,30 +238,7 @@ def _get_qwen_model_configs() -> list[ModelConfig]:
     ]
 
 
-def _get_qwen_custom_voice_configs() -> list[ModelConfig]:
-    """Return Qwen CustomVoice model configs."""
-    return [
-        ModelConfig(
-            model_name="qwen-custom-voice-1.7B",
-            display_name="Qwen CustomVoice 1.7B",
-            engine="qwen_custom_voice",
-            hf_repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-            model_size="1.7B",
-            size_mb=3500,
-            supports_instruct=True,
-            languages=["zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"],
-        ),
-        ModelConfig(
-            model_name="qwen-custom-voice-0.6B",
-            display_name="Qwen CustomVoice 0.6B",
-            engine="qwen_custom_voice",
-            hf_repo_id="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
-            model_size="0.6B",
-            size_mb=1200,
-            supports_instruct=True,
-            languages=["zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"],
-        ),
-    ]
+
 
 
 def _get_non_qwen_tts_configs() -> list[ModelConfig]:
@@ -440,7 +415,6 @@ def get_all_model_configs() -> list[ModelConfig]:
     """Return the full list of model configs (TTS + STT + LLM)."""
     return (
         _get_qwen_model_configs()
-        + _get_qwen_custom_voice_configs()
         + _get_non_qwen_tts_configs()
         + _get_whisper_configs()
         + _get_qwen_llm_configs()
@@ -449,7 +423,7 @@ def get_all_model_configs() -> list[ModelConfig]:
 
 def get_tts_model_configs() -> list[ModelConfig]:
     """Return only TTS model configs."""
-    return _get_qwen_model_configs() + _get_qwen_custom_voice_configs() + _get_non_qwen_tts_configs()
+    return _get_qwen_model_configs() + _get_non_qwen_tts_configs()
 
 
 def get_llm_model_configs() -> list[ModelConfig]:
@@ -557,53 +531,65 @@ def get_tts_backend() -> TTSBackend:
 
 
 def get_tts_backend_for_engine(engine: str) -> TTSBackend:
-    """Get or create a TTS backend for the given engine."""
+    """Get or create a TTS backend for the given engine or model ID."""
     global _tts_backends
 
     if engine in _tts_backends:
         return _tts_backends[engine]
 
+    eng_lower = (engine or "").lower()
+
+    if eng_lower in ("qwen", "qwen_1_7b", "qwen_0_6b", "pytorch"):
+        canonical_engine = "pytorch"
+    elif "chatterbox_turbo" in eng_lower or eng_lower == "turbo":
+        canonical_engine = "chatterbox_turbo"
+    elif "chatterbox" in eng_lower:
+        canonical_engine = "chatterbox"
+    elif "kokoro" in eng_lower:
+        canonical_engine = "kokoro"
+    elif "lux" in eng_lower:
+        canonical_engine = "luxtts"
+    elif eng_lower == "mlx":
+        canonical_engine = "mlx"
+    else:
+        canonical_engine = eng_lower
+
+    if canonical_engine in _tts_backends:
+        return _tts_backends[canonical_engine]
+
     with _tts_backends_lock:
-        if engine in _tts_backends:
-            return _tts_backends[engine]
+        if canonical_engine in _tts_backends:
+            return _tts_backends[canonical_engine]
 
-        if engine == "luxtts":
+        if canonical_engine == "luxtts":
             from .luxtts_backend import LuxTTSBackend
-
             backend = LuxTTSBackend()
-        elif engine in ("chatterbox", "chatterbox_multilingual"):
+        elif canonical_engine == "chatterbox":
             from .chatterbox_backend import ChatterboxTTSBackend
-
             backend = ChatterboxTTSBackend()
-        elif engine == "chatterbox_turbo":
+        elif canonical_engine == "chatterbox_turbo":
             from .chatterbox_turbo_backend import ChatterboxTurboTTSBackend
-
             backend = ChatterboxTurboTTSBackend()
-        elif engine == "tada":
+        elif canonical_engine == "tada":
             from .hume_backend import HumeTadaBackend
-
             backend = HumeTadaBackend()
-        elif engine == "kokoro":
+        elif canonical_engine == "kokoro":
             from .kokoro_backend import KokoroTTSBackend
-
             backend = KokoroTTSBackend()
-        elif engine == "qwen_custom_voice":
+        elif canonical_engine == "qwen_custom_voice":
             from .qwen_custom_voice_backend import QwenCustomVoiceBackend
-
             backend = QwenCustomVoiceBackend()
-        elif engine == "mlx":
+        elif canonical_engine == "mlx":
             from .mlx_backend import MLXTTSBackend
-
             backend = MLXTTSBackend()
-        elif engine == "pytorch":
+        elif canonical_engine == "pytorch":
             from .pytorch_backend import PyTorchTTSBackend
-
             backend = PyTorchTTSBackend()
         else:
             from .chatterbox_tts_backend import ChatterboxTTSBackend
-
             backend = ChatterboxTTSBackend()
 
+        _tts_backends[canonical_engine] = backend
         _tts_backends[engine] = backend
         return backend
 

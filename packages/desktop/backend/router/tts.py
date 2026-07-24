@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import io
 import logging
 import os
@@ -40,17 +41,29 @@ def get_tts_engines():
 async def tts_generate(payload: TTSPayload):
     target_model = (payload.model_id or payload.model_size or "kokoro").lower()
 
-    # If chatterbox is selected and a voice prompt is provided, run Chatterbox zero-shot voice cloning
-    if "chatterbox" in target_model and payload.voice_prompt and isinstance(payload.voice_prompt, dict):
-        ref_audio = payload.voice_prompt.get("ref_audio") or payload.voice_prompt.get("audio_path")
-        if ref_audio:
-            try:
-                chatterbox = get_tts_backend_for_engine("chatterbox")
-                audio_array, sample_rate = await chatterbox.generate(
+    # Route generation to active loaded backend if present
+    try:
+        backend = get_tts_backend_for_engine(target_model)
+        if backend and hasattr(backend, "is_loaded") and backend.is_loaded():
+            gen_fn = backend.generate
+            if inspect.iscoroutinefunction(gen_fn):
+                res = await gen_fn(
                     text=payload.text,
+                    voice=payload.voice,
+                    speed=payload.speed,
                     voice_prompt=payload.voice_prompt,
                 )
-                pcm16 = (audio_array * 32767).clip(-32768, 32767).astype(np.int16)
+            else:
+                res = gen_fn(
+                    text=payload.text,
+                    voice=payload.voice,
+                    speed=payload.speed,
+                    voice_prompt=payload.voice_prompt,
+                )
+
+            if isinstance(res, tuple) and len(res) == 2:
+                audio_array, sample_rate = res
+                pcm16 = (np.asarray(audio_array) * 32767).clip(-32768, 32767).astype(np.int16)
                 buf = io.BytesIO()
                 with wave.open(buf, "wb") as wf:
                     wf.setnchannels(1)
@@ -58,11 +71,14 @@ async def tts_generate(payload: TTSPayload):
                     wf.setframerate(sample_rate)
                     wf.writeframes(pcm16.tobytes())
                 return Response(content=buf.getvalue(), media_type="audio/wav")
-            except RuntimeError as re:
-                raise HTTPException(status_code=409, detail=str(re))
-            except Exception as e:
-                logger.info("[TTS Router] Chatterbox voice cloning unavailable (%s). Defaulting to SherpaTTS.", e)
+            elif isinstance(res, (bytes, bytearray)):
+                return Response(content=res, media_type="audio/wav")
+    except Exception as e:
+        logger.warning("[TTS Router] Active backend '%s' failed: %s", target_model, e)
+        if payload.model_id or payload.model_size:
+            raise HTTPException(status_code=500, detail=f"Synthesis failed for '{target_model}': {e}") from e
 
+    # Fallback to default SherpaTTS engine
     try:
         audio_bytes = await asyncio.to_thread(
             tts_engine.generate,

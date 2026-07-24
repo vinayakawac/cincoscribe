@@ -108,7 +108,11 @@ class SherpaTTS(TTSBackend):
         if not tts_config.validate():
             raise EngineError("Invalid sherpa-onnx TTS configuration.")
 
-        self._tts = sherpa_onnx.OfflineTts(tts_config)
+        try:
+            self._tts = sherpa_onnx.OfflineTts(tts_config)
+        except Exception as err:
+            self._tts = None
+            raise EngineError(f"SherpaTTS ONNX Runtime initialization failed: {err}") from err
 
     def generate(
         self,

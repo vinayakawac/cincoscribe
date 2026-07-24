@@ -46,6 +46,43 @@
     </div>
   </div>
 
+  <!-- ═══════════════ Custom Voices Notice Modal ═══════════════ -->
+  <div id="custom-voices-notice-modal" style="position: fixed; inset: 0; z-index: 99999; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; padding: 20px;">
+    <div style="background: #141414; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 16px; width: 100%; max-width: 440px; padding: 28px; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6); display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(217, 119, 6, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); display: flex; align-items: center; justify-content: center; color: #f59e0b;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="22"></line>
+            </svg>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: #fff; font-family: var(--ff-sans);">Custom Voices</h3>
+            <span style="font-size: 11px; color: #d97706; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">In Development</span>
+          </div>
+        </div>
+        <button id="btn-close-cv-notice" style="background: transparent; border: none; color: #888; cursor: pointer; padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: color 150ms ease;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <p style="margin: 0; font-size: 13.5px; color: #aaa; line-height: 1.5; font-family: var(--ff-sans);">
+        Custom voices are being actively worked on and will be available in an upcoming update.
+      </p>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+        <button id="btn-ack-cv-notice" style="background: linear-gradient(135deg, #d97706, #f59e0b); color: #000; border: none; padding: 9px 20px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; font-family: var(--ff-sans); box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3); transition: transform 150ms ease, filter 150ms ease;">
+          Got it
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div class="app-shell">
 
     <!-- ═══════════════ Desktop Icon Rail ═══════════════ -->
@@ -364,11 +401,32 @@
             setTimeout(() => {
               splash.style.opacity = '0';
               splash.style.visibility = 'hidden';
-              setTimeout(() => { splash.style.display = 'none'; }, 400);
+              setTimeout(() => {
+                splash.style.display = 'none';
+                const cvNoticeModal = document.getElementById('custom-voices-notice-modal');
+                if (cvNoticeModal) {
+                  cvNoticeModal.style.display = 'flex';
+                }
+              }, 400);
             }, 300);
           }
         }, 50);
       })();
+
+      // ── Custom Voices Notice Modal Event Listeners ─────
+      const cvNoticeModal = document.getElementById('custom-voices-notice-modal');
+      const closeCvNotice = () => {
+        if (cvNoticeModal) cvNoticeModal.style.display = 'none';
+      };
+      const btnCloseCv = document.getElementById('btn-close-cv-notice');
+      const btnAckCv = document.getElementById('btn-ack-cv-notice');
+      if (btnCloseCv) btnCloseCv.addEventListener('click', closeCvNotice);
+      if (btnAckCv) btnAckCv.addEventListener('click', closeCvNotice);
+      if (cvNoticeModal) {
+        cvNoticeModal.addEventListener('click', (e) => {
+          if (e.target === cvNoticeModal) closeCvNotice();
+        });
+      }
 
       // ── Theme toggle ────────────────────────────────────
       const themeToggle = document.getElementById('btn-theme-toggle');

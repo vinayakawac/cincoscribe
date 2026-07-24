@@ -84,6 +84,12 @@ class HumeTadaBackend:
 
     async def load_model(self, model_size: str = "1B") -> None:
         """Load the TADA model and encoder."""
+        if model_size:
+            ms_lower = str(model_size).lower()
+            if "3b" in ms_lower:
+                model_size = "3B"
+            elif "1b" in ms_lower:
+                model_size = "1B"
         if self.model is not None and self.model_size == model_size:
             return
         async with self._model_load_lock:

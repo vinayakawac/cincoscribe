@@ -923,10 +923,12 @@ function renderTextToVoicePage(container) {
       });
       if (res.ok) {
         Utils.showToast(`Active model: ${targetModelId} (others unloaded)`);
+        return true;
       }
     } catch (e) {
       console.warn('[tts] Model switch request skipped:', e);
     }
+    return false;
   }
 
     // Model Selector dropdown selection
@@ -1042,6 +1044,8 @@ function renderTextToVoicePage(container) {
           const target = modelsList.find(m => (m.id || m.model_id) === modelSize);
           if (target && (target.status === 'loaded' || target.loaded)) {
             isLoaded = true;
+          } else if (target && (target.status === 'downloaded' || target.downloaded)) {
+            isLoaded = await switchTTSModel(modelSize);
           }
         }
       } catch (e) {
